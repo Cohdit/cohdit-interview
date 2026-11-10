@@ -22,7 +22,7 @@ const parent = path.resolve(opt('parent') || path.join(here, '..'));
 const repoName = `cohdit-knowledge-${slug}`;
 const dir = path.join(parent, repoName);
 const registryFile = process.env.INTERVIEW_REGISTRY || path.join(here, 'experts.json');
-const registry = fs.existsSync(registryFile) ? JSON.parse(fs.readFileSync(registryFile, 'utf8')) : { owner: 'delon.leung', experts: [] };
+const registry = fs.existsSync(registryFile) ? JSON.parse(fs.readFileSync(registryFile, 'utf8')) : { owner: null, experts: [] };
 if (registry.experts.some((e) => e.slug === slug)) die(`already registered: ${slug}`);
 if (fs.existsSync(dir)) die(`folder exists: ${dir}`);
 
