@@ -1,0 +1,19 @@
+{
+  "_about": "The quality bar an expert's knowledge must clear before an agent is built from it. Defaults apply to every expert; an expert's own benchmarks.json may raise them, never lower them. The bar is part of the product, so it is not renegotiated per agent.",
+  "per_domain": {
+    "min_confirmed_atoms": 5,
+    "min_with_why": 0.8,
+    "min_with_unless": 0.4,
+    "min_stories": 1
+  },
+  "voice": { "min_samples": 8 },
+  "boundaries": { "min_items": 3 },
+  "decision_calls": { "min_items": 5 },
+  "calibration": {
+    "min_questions": 25,
+    "min_domains_covered": "all",
+    "blind_rating_mean": 4.2,
+    "blind_rating_floor": 3,
+    "max_unresolved_contradictions": 0
+  }
+}

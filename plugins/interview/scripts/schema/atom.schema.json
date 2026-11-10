@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Knowledge atom",
+  "description": "One piece of an expert's knowledge. Channel-neutral: it names no platform, model or audience. Adapters turn atoms into Hatch lessons, Claude agents, prompt packs and the like.",
+  "type": "object",
+  "required": [
+    "id",
+    "type",
+    "statement",
+    "domain",
+    "status",
+    "source"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^A-\\d{3,}$"
+    },
+    "type": {
+      "enum": [
+        "rule",
+        "heuristic",
+        "red-flag",
+        "story",
+        "novice-vs-expert"
+      ]
+    },
+    "statement": {
+      "type": "string",
+      "maxLength": 400,
+      "description": "The claim, in the expert's own words where possible."
+    },
+    "why": {
+      "type": "string",
+      "description": "The reason behind it. Optional in the file, but the quality benchmark requires it on most confirmed atoms."
+    },
+    "unless": {
+      "type": "string",
+      "description": "When the rule fails or does not apply."
+    },
+    "example": {
+      "type": "string",
+      "description": "The story or evidence behind it."
+    },
+    "domain": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "description": "Areas of the expert's field, e.g. testing, database, security, ux."
+    },
+    "applies_to": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Words in a piece of work that make this relevant. Empty means it applies broadly."
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^A-\\d{3,}$"
+      }
+    },
+    "legacy": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Ids in older stores this came from, e.g. Hatch lesson ids."
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "confirmed",
+        "retired"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "description": "Where it came from, e.g. interview date."
+    },
+    "ext": {
+      "type": "object",
+      "description": "Channel-specific data kept so a store can round-trip, namespaced by channel, e.g. ext.hatch = {for, detail, added}. Atoms never depend on it."
+    }
+  }
+}
