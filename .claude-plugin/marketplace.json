@@ -2,15 +2,15 @@
   "$schema": "https://json.schemastore.org/claude-code-marketplace-manifest.json",
   "name": "cohdit-interview",
   "description": "Cohdit Interview: be interviewed by a master interviewer, and keep what you know as a knowledge base you own. Say \"interview me\".",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "owner": { "name": "Cohdit", "email": "delon@cohdit.com" },
   "metadata": { "pluginRoot": "./plugins" },
   "plugins": [
     {
-      "name": "interview",
-      "source": "./plugins/interview",
+      "name": "cohdit",
+      "source": "./plugins/cohdit",
       "description": "Three things you can say: interview me, check my knowledge, new expert. Turns an expert's experience into a knowledge base, one question at a time.",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "category": "productivity",
       "author": { "name": "Cohdit", "email": "delon@cohdit.com" }
     }
