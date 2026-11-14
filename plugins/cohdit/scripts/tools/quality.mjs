@@ -2,7 +2,7 @@
 // level. Usage: node scripts/quality.mjs <expert-repo-folder>   (exit 1 unless readiness is "high")
 import fs from 'node:fs';
 import path from 'node:path';
-import { readAtoms } from './lib.mjs';
+import { readAtoms, readLog, timeSpent } from './lib.mjs';
 
 const dir = process.argv[2];
 const def = JSON.parse(fs.readFileSync(new URL('../schema/benchmarks.default.json', import.meta.url), 'utf8'));
@@ -57,9 +57,6 @@ else {
 const open = (golden.contradictions || []).filter((c) => !c.resolved).length;
 if (open > B.calibration.max_unresolved_contradictions) gaps.push(`unresolved contradictions ${open}`);
 
-console.log(`Expert: ${dir}  confirmed atoms: ${atoms.length}`);
-for (const [d, n, m, dp] of rows) console.log(`  ${m.length ? 'GAP' : 'ok '} ${d.padEnd(14)} ${dp.padEnd(7)} ${String(n).padStart(3)} atoms${m.length ? '  ' + m.join(', ') : ''}`);
-console.log(`  voice ${v}  boundaries ${bd}  decision calls ${dc}  calibration questions ${qs}`);
 // Progress toward the bar, for the expert: each missing item is roughly one answer. Drafts count, since they
 // only wait for the expert's review. Minutes are an estimate at about 2 minutes an answer.
 let have = 0, need = 0;
@@ -80,11 +77,31 @@ unit(bd, B.boundaries.min_items);
 unit(dc, B.decision_calls.min_items);
 unit(qs, B.calibration.min_questions);
 const left = need - have;
-const duration = (m) => m < 60 ? `${Math.ceil(m / 5) * 5} minutes` : `${Math.ceil(m / 30) / 2} hours`;
 const pct = need ? Math.floor((100 * have) / need) : 100;
-console.log(left
-  ? `Progress: ${pct}% of the way. About ${left} more answers, roughly ${duration(left * 2)}${r.length ? '' : ', then one session where you score the agent'}.`
-  : `Progress: all answers in${r.length ? '' : '; next, one session where you score the agent'}.`);
+// Time so far, from the plugin's log. Once there are enough answers, the estimate uses the expert's own pace.
+const spent = timeSpent(readLog(dir));
+const perAnswer = spent.answers >= 20 ? Math.min(Math.max(spent.ms / 60000 / spent.answers, 0.5), 10) : 2;
+const hrs = (m) => `${Math.round(m / 6) / 10} hours`;
+const duration = (m) => m < 60 ? `${Math.ceil(m / 5) * 5} minutes` : `${Math.ceil(m / 30) / 2} hours`;
+const so_far = spent.ms ? `, ${hrs(spent.ms / 60000)} in over ${spent.sessions} session${spent.sessions === 1 ? '' : 's'}` : '';
+const after = r.length ? '' : ', then one session where you score the agent';
+const progress = left
+  ? `Progress: ${pct}% of the way${so_far}. About ${left} more answers, roughly ${duration(left * perAnswer)}${after}.`
+  : `Progress: all answers in${so_far}${r.length ? '' : '; next, one session where you score the agent'}.`;
+if (process.argv.includes('--json')) {
+  const every = readAtoms(dir).map((x) => x.atom);
+  const by = (st) => every.filter((a) => a.status === st).length;
+  console.log(JSON.stringify({
+    atoms: { draft: by('draft'), confirmed: by('confirmed'), retired: by('retired') },
+    topics: Object.fromEntries(domains.map((d) => [d, all.filter((a) => a.domain.includes(d)).length])),
+    depth, progress: pct, left, hours: Math.round(spent.ms / 360000) / 10, sessions: spent.sessions, line: progress,
+  }));
+  process.exit(0);
+}
+console.log(`Expert: ${dir}  confirmed atoms: ${atoms.length}`);
+for (const [d, n, m, dp] of rows) console.log(`  ${m.length ? 'GAP' : 'ok '} ${d.padEnd(14)} ${dp.padEnd(7)} ${String(n).padStart(3)} atoms${m.length ? '  ' + m.join(', ') : ''}`);
+console.log(`  voice ${v}  boundaries ${bd}  decision calls ${dc}  calibration questions ${qs}`);
+console.log(progress);
 const structural = gaps.filter((g) => !/blind|rating|contradiction/.test(g));
 const level = gaps.length === 0 ? 'high' : structural.length <= 3 ? 'medium' : 'low';
 console.log(`Readiness: ${level}${gaps.length ? '  (' + gaps.length + ' gaps)' : ''}`);

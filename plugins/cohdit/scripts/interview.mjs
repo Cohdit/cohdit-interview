@@ -4,12 +4,16 @@
 //   interview.mjs whoami                       the expert whose repo this is
 //   interview.mjs check                        validate and score the expert repo
 //   interview.mjs new-expert --name .. --slug .. [--field ..]
+//   interview.mjs hook prompt|stop|end             called by hooks/hooks.json: time log and stats (scripts/stats.mjs)
+//   interview.mjs backfill                     rebuild the time log from earlier sessions on this computer
+//   interview.mjs stats on|off                 share usage stats with Cohdit, or stop
 // INTERVIEW_KEY or ~/.cohdit-interview/key is the access key. INTERVIEW_API overrides the base URL.
 // INTERVIEW_DEV_DIR reads content from a folder ({dir}/skills/<n>/SKILL.md, {dir}/agents/<n>.md): no key, no cache.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { makeStats } from './stats.mjs';
 
 const ROOT = path.resolve(new URL('..', import.meta.url).pathname);
 const HOME = path.join(os.homedir(), '.cohdit-interview');
@@ -91,6 +95,7 @@ function tool(name, args, env = {}) {
   }
 }
 
+const stats = () => makeStats({ HOME, ROOT, BASE, VERSION, key, findExpert });
 const [cmd, ...rest] = process.argv.slice(2);
 if (cmd === 'content') {
   console.log(await content(rest[0], rest[1]));
@@ -104,11 +109,19 @@ if (cmd === 'content') {
   const invalid = tool('validate.mjs', [e.dir]);
   tool('quality.mjs', [e.dir]);
   process.exit(invalid ? 1 : 0);
+} else if (cmd === 'hook') {
+  try { await stats().hook(rest[0]); } catch {}
+} else if (cmd === 'backfill') {
+  const e = findExpert();
+  if (!e) { console.log('No expert.json here. This folder is not an expert repo.'); process.exit(1); }
+  console.log(stats().backfill(e));
+} else if (cmd === 'stats') {
+  console.log(stats().setSharing(rest[0] !== 'off'));
 } else if (cmd === 'new-expert') {
   const here = findExpert();
   const parent = here ? path.dirname(here.dir) : process.cwd();
   process.exit(tool('new-expert.mjs', [...rest, '--parent', parent], { INTERVIEW_REGISTRY: path.join(HOME, 'experts.json') }));
 } else {
-  console.log('Usage: interview.mjs content|whoami|check|new-expert');
+  console.log('Usage: interview.mjs content|whoami|check|new-expert|backfill|stats on|off');
   process.exit(1);
 }
