@@ -43,6 +43,14 @@
       "type": "string",
       "description": "The story or evidence behind it."
     },
+    "firm": {
+      "type": "boolean",
+      "description": "True only when the expert has said outright that this point stands even where common practice in their field differs. The agent then follows it and says it is the expert's deliberate stance."
+    },
+    "practice": {
+      "type": "string",
+      "description": "What well-established practice in the expert's field says, when it differs from this point. The agent mentions it alongside the expert's view."
+    },
     "domain": {
       "type": "array",
       "items": {

@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "cohdit",
   "displayName": "Cohdit Interview",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Be interviewed by a master interviewer and keep what you know as a knowledge base you own. Three things you can say: interview me, check my knowledge, new expert.",
   "author": { "name": "Cohdit", "email": "delon@cohdit.com" },
   "keywords": ["interview", "knowledge", "expert", "atoms"]

@@ -1,6 +1,6 @@
 ---
 name: interview
-description: Interview the expert whose knowledge repo this is, one question at a time. Triggers on "interview me", "let us continue the interview", "capture what I know".
+description: Interview the expert whose knowledge repo this is, one question at a time. Triggers on "interview me", "let us continue the interview", "capture what I know", "second opinion", "check my points against common practice".
 ---
 
 Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/interview.mjs" content skill interview`.

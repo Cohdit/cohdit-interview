@@ -22,10 +22,16 @@ for (const f of files) {
   if (a.type && !p.type.enum.includes(a.type)) errors.push(`${f}: bad type "${a.type}"`);
   if (a.status && !p.status.enum.includes(a.status)) errors.push(`${f}: bad status "${a.status}"`);
   if (a.statement && a.statement.length > p.statement.maxLength) errors.push(`${f}: statement over ${p.statement.maxLength} characters`);
+  if ('firm' in a && typeof a.firm !== 'boolean') errors.push(`${f}: firm must be true or false`);
   if (a.domain && (!Array.isArray(a.domain) || a.domain.length === 0)) errors.push(`${f}: domain needs at least one entry`);
   if (a.id) { if (ids.has(a.id)) errors.push(`${f}: duplicate id ${a.id} (also ${ids.get(a.id)})`); ids.set(a.id, f); }
   if (a.id && path.basename(f) !== `${a.id}.json`) errors.push(`${f}: file name should be ${a.id}.json`);
 }
+// expert.json may record how deep the expert is in each topic.
+const DEPTHS = ['deep', 'working', 'light'];
+const ej = path.join(root, 'expert.json');
+const expert = fs.existsSync(ej) ? JSON.parse(fs.readFileSync(ej, 'utf8')) : {};
+for (const [d, v] of Object.entries(expert.depth || {})) if (!DEPTHS.includes(v)) errors.push(`expert.json: depth for "${d}" must be one of ${DEPTHS.join(', ')}`);
 for (const [f, a] of atoms) for (const l of a.links || []) if (!ids.has(l)) errors.push(`${f}: link to unknown atom ${l}`);
 
 if (errors.length) { console.error(errors.join('\n')); process.exit(1); }

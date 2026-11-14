@@ -6,6 +6,13 @@
     "min_with_unless": 0.4,
     "min_stories": 1
   },
+  "light_domain": {
+    "_about": "A topic the expert calls light: common practice leads there, so the expert only adds their own angle.",
+    "min_confirmed_atoms": 2,
+    "min_with_why": 0.8,
+    "min_with_unless": 0,
+    "min_stories": 0
+  },
   "voice": { "min_samples": 8 },
   "boundaries": { "min_items": 3 },
   "decision_calls": { "min_items": 5 },

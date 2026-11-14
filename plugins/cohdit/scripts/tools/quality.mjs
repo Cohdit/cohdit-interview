@@ -16,20 +16,26 @@ const golden = fs.existsSync(path.join(dir, 'calibration.json')) ? JSON.parse(fs
 
 // Score the expert's declared core domains; a stray tag is not a domain the agent must master.
 const domains = own.core_domains && own.core_domains.length ? own.core_domains : [...new Set(atoms.flatMap((a) => a.domain))].sort();
+// How deep the expert is in each topic (expert.json). A light topic has a lower bar; an unasked one is a gap.
+const expert = fs.existsSync(path.join(dir, 'expert.json')) ? JSON.parse(fs.readFileSync(path.join(dir, 'expert.json'), 'utf8')) : {};
+const depth = expert.depth || {};
+const bar = (d) => (depth[d] === 'light' ? B.light_domain : B.per_domain);
 const gaps = [];
 const rows = [];
+const unasked = domains.filter((d) => !depth[d]);
+if (unasked.length) gaps.push(`depth not asked: ${unasked.join(', ')}`);
 for (const d of domains) {
   const as = atoms.filter((a) => a.domain.includes(d));
   const why = as.filter((a) => a.why).length / as.length;
   const unl = as.filter((a) => a.unless).length / as.length;
   const st = as.filter((a) => a.type === 'story' || a.example).length;
-  const p = B.per_domain;
+  const p = bar(d);
   const miss = [];
   if (as.length < p.min_confirmed_atoms) miss.push(`atoms ${as.length}/${p.min_confirmed_atoms}`);
   if (why < p.min_with_why) miss.push(`why ${Math.round(why * 100)}%/${p.min_with_why * 100}%`);
   if (unl < p.min_with_unless) miss.push(`unless ${Math.round(unl * 100)}%/${p.min_with_unless * 100}%`);
   if (st < p.min_stories) miss.push(`stories ${st}/${p.min_stories}`);
-  rows.push([d, as.length, miss]);
+  rows.push([d, as.length, miss, depth[d] || '?']);
   if (miss.length) gaps.push(`domain ${d}: ${miss.join(', ')}`);
 }
 const v = lines('voice.md'), bd = lines('boundaries.md'), dc = lines('decisions.md');
@@ -52,7 +58,7 @@ const open = (golden.contradictions || []).filter((c) => !c.resolved).length;
 if (open > B.calibration.max_unresolved_contradictions) gaps.push(`unresolved contradictions ${open}`);
 
 console.log(`Expert: ${dir}  confirmed atoms: ${atoms.length}`);
-for (const [d, n, m] of rows) console.log(`  ${m.length ? 'GAP' : 'ok '} ${d.padEnd(14)} ${String(n).padStart(3)} atoms${m.length ? '  ' + m.join(', ') : ''}`);
+for (const [d, n, m, dp] of rows) console.log(`  ${m.length ? 'GAP' : 'ok '} ${d.padEnd(14)} ${dp.padEnd(7)} ${String(n).padStart(3)} atoms${m.length ? '  ' + m.join(', ') : ''}`);
 console.log(`  voice ${v}  boundaries ${bd}  decision calls ${dc}  calibration questions ${qs}`);
 // Progress toward the bar, for the expert: each missing item is roughly one answer. Drafts count, since they
 // only wait for the expert's review. Minutes are an estimate at about 2 minutes an answer.
@@ -61,13 +67,14 @@ const unit = (got, target) => { need += target; have += Math.min(got, target); }
 const all = readAtoms(dir).map((x) => x.atom).filter((a) => a.status === 'confirmed' || a.status === 'draft');
 for (const d of domains) {
   const as = all.filter((a) => a.domain.includes(d));
-  const p = B.per_domain;
+  const p = bar(d);
   const n = Math.max(as.length, p.min_confirmed_atoms);
   unit(as.length, p.min_confirmed_atoms);
   unit(as.filter((a) => a.why).length, Math.ceil(n * p.min_with_why));
   unit(as.filter((a) => a.unless).length, Math.ceil(n * p.min_with_unless));
   unit(as.filter((a) => a.type === 'story' || a.example).length, p.min_stories);
 }
+unit(domains.length - unasked.length, domains.length);
 unit(v, B.voice.min_samples);
 unit(bd, B.boundaries.min_items);
 unit(dc, B.decision_calls.min_items);
