@@ -54,6 +54,30 @@ if (open > B.calibration.max_unresolved_contradictions) gaps.push(`unresolved co
 console.log(`Expert: ${dir}  confirmed atoms: ${atoms.length}`);
 for (const [d, n, m] of rows) console.log(`  ${m.length ? 'GAP' : 'ok '} ${d.padEnd(14)} ${String(n).padStart(3)} atoms${m.length ? '  ' + m.join(', ') : ''}`);
 console.log(`  voice ${v}  boundaries ${bd}  decision calls ${dc}  calibration questions ${qs}`);
+// Progress toward the bar, for the expert: each missing item is roughly one answer. Drafts count, since they
+// only wait for the expert's review. Minutes are an estimate at about 2 minutes an answer.
+let have = 0, need = 0;
+const unit = (got, target) => { need += target; have += Math.min(got, target); };
+const all = readAtoms(dir).map((x) => x.atom).filter((a) => a.status === 'confirmed' || a.status === 'draft');
+for (const d of domains) {
+  const as = all.filter((a) => a.domain.includes(d));
+  const p = B.per_domain;
+  const n = Math.max(as.length, p.min_confirmed_atoms);
+  unit(as.length, p.min_confirmed_atoms);
+  unit(as.filter((a) => a.why).length, Math.ceil(n * p.min_with_why));
+  unit(as.filter((a) => a.unless).length, Math.ceil(n * p.min_with_unless));
+  unit(as.filter((a) => a.type === 'story' || a.example).length, p.min_stories);
+}
+unit(v, B.voice.min_samples);
+unit(bd, B.boundaries.min_items);
+unit(dc, B.decision_calls.min_items);
+unit(qs, B.calibration.min_questions);
+const left = need - have;
+const duration = (m) => m < 60 ? `${Math.ceil(m / 5) * 5} minutes` : `${Math.ceil(m / 30) / 2} hours`;
+const pct = need ? Math.floor((100 * have) / need) : 100;
+console.log(left
+  ? `Progress: ${pct}% of the way. About ${left} more answers, roughly ${duration(left * 2)}${r.length ? '' : ', then one session where you score the agent'}.`
+  : `Progress: all answers in${r.length ? '' : '; next, one session where you score the agent'}.`);
 const structural = gaps.filter((g) => !/blind|rating|contradiction/.test(g));
 const level = gaps.length === 0 ? 'high' : structural.length <= 3 ? 'medium' : 'low';
 console.log(`Readiness: ${level}${gaps.length ? '  (' + gaps.length + ' gaps)' : ''}`);

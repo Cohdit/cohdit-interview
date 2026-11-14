@@ -1,6 +1,6 @@
 ---
 name: check
-description: Check an expert repo: validates every piece of knowledge and reports coverage and gaps. Triggers on "check my knowledge", "how complete is it", "what is missing".
+description: Check an expert repo: validates every piece of knowledge and reports coverage and gaps. Triggers on "check my knowledge", "how complete is it", "what is missing", "how much is left", "how far along am I".
 ---
 
 Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/interview.mjs" content skill check`.
