@@ -26,14 +26,16 @@ const unasked = domains.filter((d) => !depth[d]);
 if (unasked.length) gaps.push(`depth not asked: ${unasked.join(', ')}`);
 for (const d of domains) {
   const as = atoms.filter((a) => a.domain.includes(d));
-  const why = as.filter((a) => a.why).length / as.length;
-  const unl = as.filter((a) => a.unless).length / as.length;
+  const why = as.filter((a) => a.why).length;
+  const unl = as.filter((a) => a.unless).length;
   const st = as.filter((a) => a.type === 'story' || a.example).length;
   const p = bar(d);
   const miss = [];
   if (as.length < p.min_confirmed_atoms) miss.push(`atoms ${as.length}/${p.min_confirmed_atoms}`);
-  if (why < p.min_with_why) miss.push(`why ${Math.round(why * 100)}%/${p.min_with_why * 100}%`);
-  if (unl < p.min_with_unless) miss.push(`unless ${Math.round(unl * 100)}%/${p.min_with_unless * 100}%`);
+  // Fixed counts (a share of the minimum), the same checklist as Progress below, so 100% means no topic gaps.
+  const needWhy = Math.ceil(p.min_confirmed_atoms * p.min_with_why), needUnl = Math.ceil(p.min_confirmed_atoms * p.min_with_unless);
+  if (why < needWhy) miss.push(`why ${why}/${needWhy}`);
+  if (unl < needUnl) miss.push(`unless ${unl}/${needUnl}`);
   if (st < p.min_stories) miss.push(`stories ${st}/${p.min_stories}`);
   rows.push([d, as.length, miss, depth[d] || '?']);
   if (miss.length) gaps.push(`domain ${d}: ${miss.join(', ')}`);
@@ -76,18 +78,24 @@ unit(v, B.voice.min_samples);
 unit(bd, B.boundaries.min_items);
 unit(dc, B.decision_calls.min_items);
 unit(qs, B.calibration.min_questions);
-const left = need - have;
-const pct = need ? Math.floor((100 * have) / need) : 100;
-// Time so far, from the plugin's log. Once there are enough answers, the estimate uses the expert's own pace.
+// The expert must never see the count go backwards: progress.json keeps the best numbers shown so far, and a
+// step back (a dropped draft, a retired point, a new topic) holds the count flat until real progress catches up.
+// The pace is measured once, after 20 answers, then frozen, so time left only falls as answers left falls.
 const spent = timeSpent(readLog(dir));
-// Whole minutes, so the estimate only moves when the expert's pace really changes.
-const perAnswer = spent.answers >= 20 ? Math.min(Math.max(Math.round(spent.ms / 60000 / spent.answers), 1), 10) : 2;
+const markFile = path.join(dir, 'progress.json');
+let mark = {};
+try { mark = JSON.parse(fs.readFileSync(markFile, 'utf8')); } catch {}
+const left = Math.min(need - have, mark.left ?? Infinity);
+const pct = Math.max(need ? Math.floor((100 * have) / need) : 100, mark.percent ?? 0);
+const perAnswer = mark.minutes_per_answer ?? (spent.answers >= 20 ? Math.min(Math.max(Math.round(spent.ms / 60000 / spent.answers), 1), 10) : null);
+const next = { percent: pct, left, ...(perAnswer && spent.answers >= 20 ? { minutes_per_answer: perAnswer } : {}) };
+if (JSON.stringify(next) !== JSON.stringify(mark)) { try { fs.writeFileSync(markFile, JSON.stringify(next, null, 2) + '\n'); } catch {} }
 const hrs = (m) => `${Math.round(m / 6) / 10} hours`;
 const duration = (m) => m < 60 ? `${Math.ceil(m / 5) * 5} minutes` : `${Math.ceil(m / 30) / 2} hours`;
 const so_far = spent.ms ? `, ${hrs(spent.ms / 60000)} in over ${spent.sessions} session${spent.sessions === 1 ? '' : 's'}` : '';
 const after = r.length ? '' : ', then one session where you score the agent';
 const progress = left
-  ? `Progress: ${pct}% of the way${so_far}. About ${left} more answers, roughly ${duration(left * perAnswer)}${after}.`
+  ? `Progress: ${pct}% of the way${so_far}. About ${left} more answers, roughly ${duration(left * (perAnswer ?? 2))}${after}.`
   : `Progress: all answers in${so_far}${r.length ? '' : '; next, one session where you score the agent'}.`;
 if (process.argv.includes('--json')) {
   const every = readAtoms(dir).map((x) => x.atom);
