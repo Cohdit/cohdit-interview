@@ -57,18 +57,18 @@ else {
 const open = (golden.contradictions || []).filter((c) => !c.resolved).length;
 if (open > B.calibration.max_unresolved_contradictions) gaps.push(`unresolved contradictions ${open}`);
 
-// Progress toward the bar, for the expert: each missing item is roughly one answer. Drafts count, since they
-// only wait for the expert's review. Minutes are an estimate at about 2 minutes an answer.
+// Progress toward the bar, for the expert, as a fixed checklist: each topic needs a set number of points, of
+// reasons, of exceptions and of stories, so an answer can only shorten the list (the readiness bar above is the
+// stricter, ratio-based one). Drafts count, since they only wait for the expert's review.
 let have = 0, need = 0;
 const unit = (got, target) => { need += target; have += Math.min(got, target); };
 const all = readAtoms(dir).map((x) => x.atom).filter((a) => a.status === 'confirmed' || a.status === 'draft');
 for (const d of domains) {
   const as = all.filter((a) => a.domain.includes(d));
   const p = bar(d);
-  const n = Math.max(as.length, p.min_confirmed_atoms);
   unit(as.length, p.min_confirmed_atoms);
-  unit(as.filter((a) => a.why).length, Math.ceil(n * p.min_with_why));
-  unit(as.filter((a) => a.unless).length, Math.ceil(n * p.min_with_unless));
+  unit(as.filter((a) => a.why).length, Math.ceil(p.min_confirmed_atoms * p.min_with_why));
+  unit(as.filter((a) => a.unless).length, Math.ceil(p.min_confirmed_atoms * p.min_with_unless));
   unit(as.filter((a) => a.type === 'story' || a.example).length, p.min_stories);
 }
 unit(domains.length - unasked.length, domains.length);
@@ -80,7 +80,8 @@ const left = need - have;
 const pct = need ? Math.floor((100 * have) / need) : 100;
 // Time so far, from the plugin's log. Once there are enough answers, the estimate uses the expert's own pace.
 const spent = timeSpent(readLog(dir));
-const perAnswer = spent.answers >= 20 ? Math.min(Math.max(spent.ms / 60000 / spent.answers, 0.5), 10) : 2;
+// Whole minutes, so the estimate only moves when the expert's pace really changes.
+const perAnswer = spent.answers >= 20 ? Math.min(Math.max(Math.round(spent.ms / 60000 / spent.answers), 1), 10) : 2;
 const hrs = (m) => `${Math.round(m / 6) / 10} hours`;
 const duration = (m) => m < 60 ? `${Math.ceil(m / 5) * 5} minutes` : `${Math.ceil(m / 30) / 2} hours`;
 const so_far = spent.ms ? `, ${hrs(spent.ms / 60000)} in over ${spent.sessions} session${spent.sessions === 1 ? '' : 's'}` : '';
