@@ -55,7 +55,7 @@ export function makeStats({ HOME, ROOT, BASE, VERSION, key, findExpert }) {
     try {
       const out = execFileSync(process.execPath, [path.join(ROOT, 'scripts/tools/quality.mjs'), dir, '--json'], { encoding: 'utf8', timeout: 5000 });
       const j = JSON.parse(out);
-      return { atoms: j.atoms, topics: j.topics, depth: j.depth, progress: j.progress, left: j.left };
+      return { atoms: j.atoms, topics: j.topics, depth: j.depth, progress: j.progress, left: j.left, eta: j.eta ?? null, units: j.units ?? null };
     } catch { return { atoms: { draft: 0, confirmed: 0, retired: 0 }, topics: {}, depth: {}, progress: null, left: null }; }
   }
 

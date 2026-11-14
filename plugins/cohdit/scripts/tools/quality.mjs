@@ -2,6 +2,9 @@
 // level. Usage: node scripts/quality.mjs <expert-repo-folder>   (exit 1 unless readiness is "high")
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { readAtoms, readLog, timeSpent } from './lib.mjs';
 
 const dir = process.argv[2];
@@ -78,32 +81,87 @@ unit(v, B.voice.min_samples);
 unit(bd, B.boundaries.min_items);
 unit(dc, B.decision_calls.min_items);
 unit(qs, B.calibration.min_questions);
-// The expert must never see the count go backwards: progress.json keeps the best numbers shown so far, and a
-// step back (a dropped draft, a retired point, a new topic) holds the count flat until real progress catches up.
-// The pace is measured once, after 20 answers, then frozen, so time left only falls as answers left falls.
+// Progress for the expert: accurate first, steady second.
+// - Time left comes from the expert's measured rate: checklist items gained per hour of logged interviewing,
+//   counted from a baseline taken when the log starts (rebuilt from git when the log was backfilled), so
+//   knowledge imported before the interviews never makes the pace look faster than it is.
+// - Until there is enough to measure (10 items and 45 minutes), a deliberately slow default is used and the line
+//   says it is a first guess: better to finish early than to run over.
+// - The numbers are never hidden or held back. If answers left goes up, the line says why.
 const spent = timeSpent(readLog(dir));
+const RAW = process.argv.includes('--raw');
 const markFile = path.join(dir, 'progress.json');
 let mark = {};
 try { mark = JSON.parse(fs.readFileSync(markFile, 'utf8')); } catch {}
-const left = Math.min(need - have, mark.left ?? Infinity);
-const pct = Math.max(need ? Math.floor((100 * have) / need) : 100, mark.percent ?? 0);
-const perAnswer = mark.minutes_per_answer ?? (spent.answers >= 20 ? Math.min(Math.max(Math.round(spent.ms / 60000 / spent.answers), 1), 10) : null);
-const next = { percent: pct, left, ...(perAnswer && spent.answers >= 20 ? { minutes_per_answer: perAnswer } : {}) };
-if (JSON.stringify(next) !== JSON.stringify(mark)) { try { fs.writeFileSync(markFile, JSON.stringify(next, null, 2) + '\n'); } catch {} }
+if (!mark.baseline && !RAW) mark.baseline = baselineFor(spent);
+// Points along the way (one per 10 minutes of logged time), so the pace can be read over the most recent
+// 4 hours of interviewing: it follows the interview as it is now, not how it went at the start.
+const history = (mark.history || []).filter((h) => h.ms <= spent.ms);
+if (!RAW && spent.ms && (!history.length || spent.ms - history.at(-1).ms >= 10 * 60000)) history.push({ ms: spent.ms, answers: spent.answers, have });
+const start = mark.baseline || { ms: spent.ms, answers: spent.answers, have };
+const rate = (from) => ({ items: have - from.have, ms: spent.ms - from.ms, answers: spent.answers - from.answers });
+const enough = (x) => x.items >= 10 && x.ms >= 45 * 60000;
+const recentFrom = [start, ...history].filter((h) => h.ms >= spent.ms - 4 * 3600000).sort((a, b) => a.ms - b.ms)[0];
+const pick = [recentFrom && rate(recentFrom), rate(start)].find((x) => x && enough(x));
+const measured = Boolean(pick);
+const clamp = (x, lo, hi) => Math.min(Math.max(x, lo), hi);
+// The default, before anything is measured, is the slow side of what interviews have shown: 15 minutes and three
+// answers for each checklist item.
+const minutesPerItem = measured ? clamp(pick.ms / 60000 / pick.items, 1, 60) : 15;
+const answersPerItem = measured ? clamp(pick.answers / pick.items, 0.5, 6) : 3;
+const itemsLeft = need - have;
+const round5 = (n) => (n > 30 ? Math.round(n / 5) * 5 : n);
+const left = itemsLeft ? round5(Math.ceil(itemsLeft * answersPerItem)) : 0;
+const scoring = r.length ? 0 : 30;
+const etaMin = Math.round(itemsLeft * minutesPerItem) + scoring;
+const pct = need ? Math.floor((100 * have) / need) : 100;
+let why = '';
+const shown = mark.shown;
+if (shown && left > shown.left) {
+  why = need > shown.need ? 'the list grew (a new topic, or a topic marked deeper)'
+    : have < shown.have ? 'some points were dropped or retired'
+    : 'your pace so far is slower than the estimate assumed';
+  why = ` Up from ${shown.left}: ${why}.`;
+}
+if (!RAW) {
+  const next = { baseline: mark.baseline, history: history.slice(-200), shown: { left, need, have, eta_minutes: etaMin } };
+  if (JSON.stringify(next) !== JSON.stringify(mark)) { try { fs.writeFileSync(markFile, JSON.stringify(next, null, 2) + '\n'); } catch {} }
+}
 const hrs = (m) => `${Math.round(m / 6) / 10} hours`;
 const duration = (m) => m < 60 ? `${Math.ceil(m / 5) * 5} minutes` : `${Math.ceil(m / 30) / 2} hours`;
 const so_far = spent.ms ? `, ${hrs(spent.ms / 60000)} in over ${spent.sessions} session${spent.sessions === 1 ? '' : 's'}` : '';
-const after = r.length ? '' : ', then one session where you score the agent';
-const progress = left
-  ? `Progress: ${pct}% of the way${so_far}. About ${left} more answers, roughly ${duration(left * (perAnswer ?? 2))}${after}.`
-  : `Progress: all answers in${so_far}${r.length ? '' : '; next, one session where you score the agent'}.`;
+const guess = measured ? '' : ' (a first guess until your pace is measured)';
+const after = scoring ? ', plus about 30 minutes at the end scoring the agent' : '';
+const progress = itemsLeft
+  ? `Progress: ${pct}% of the way${so_far}. About ${left} more answers, roughly ${duration(etaMin - scoring)}${guess}${after}.${why}`
+  : `Progress: all answers in${so_far}${scoring ? '; last, about 30 minutes scoring the agent' : ''}.`;
+
+/** Checklist items done when the log began: from git when the log starts in the past (a backfill), else now. */
+function baselineFor(spent) {
+  const events = readLog(dir);
+  const first = events.length ? Math.min(...events.map((e) => e.t)) : null;
+  if (first && Date.now() - first > 3600000) {
+    try {
+      const git = (...a) => execFileSync('git', ['-C', dir, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      const rev = git('rev-list', '-1', `--before=${Math.floor(first / 1000)}`, 'HEAD');
+      if (rev) {
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'expert-then-'));
+        execFileSync('sh', ['-c', `git -C "${dir}" archive ${rev} | tar -x -C "${tmp}"`], { stdio: 'ignore' });
+        const then = JSON.parse(execFileSync(process.execPath, [fileURLToPath(import.meta.url), tmp, '--json', '--raw'], { encoding: 'utf8' }));
+        fs.rmSync(tmp, { recursive: true, force: true });
+        return { from: 'git', t: first, ms: 0, answers: 0, have: then.units.have };
+      }
+    } catch {}
+  }
+  return { from: 'now', t: Date.now(), ms: spent.ms, answers: spent.answers, have };
+}
 if (process.argv.includes('--json')) {
   const every = readAtoms(dir).map((x) => x.atom);
   const by = (st) => every.filter((a) => a.status === st).length;
   console.log(JSON.stringify({
     atoms: { draft: by('draft'), confirmed: by('confirmed'), retired: by('retired') },
     topics: Object.fromEntries(domains.map((d) => [d, all.filter((a) => a.domain.includes(d)).length])),
-    depth, progress: pct, left, hours: Math.round(spent.ms / 360000) / 10, sessions: spent.sessions, line: progress,
+    depth, progress: pct, left, eta: etaMin, units: { have, need }, measured, hours: Math.round(spent.ms / 360000) / 10, sessions: spent.sessions, line: progress,
   }));
   process.exit(0);
 }
