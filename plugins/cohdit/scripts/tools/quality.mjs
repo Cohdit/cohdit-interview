@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { readAtoms, readLog, timeSpent } from './lib.mjs';
+import { readAtoms, readLog, timeSpent, readDumps, fromDump } from './lib.mjs';
 
 const dir = process.argv[2];
 const def = JSON.parse(fs.readFileSync(new URL('../schema/benchmarks.default.json', import.meta.url), 'utf8'));
@@ -68,6 +68,15 @@ if (open > B.calibration.max_unresolved_contradictions) gaps.push(`unresolved co
 let have = 0, need = 0;
 const unit = (got, target) => { need += target; have += Math.min(got, target); };
 const all = readAtoms(dir).map((x) => x.atom).filter((a) => a.status === 'confirmed' || a.status === 'draft');
+// Checklist items the topics' atoms fill, for a given set of atoms (the whole set, or the set without dumps).
+const topicUnits = (list) => domains.reduce((n, d) => {
+  const as = list.filter((a) => a.domain.includes(d));
+  const p = bar(d);
+  return n + Math.min(as.length, p.min_confirmed_atoms)
+    + Math.min(as.filter((a) => a.why).length, Math.ceil(p.min_confirmed_atoms * p.min_with_why))
+    + Math.min(as.filter((a) => a.unless).length, Math.ceil(p.min_confirmed_atoms * p.min_with_unless))
+    + Math.min(as.filter((a) => a.type === 'story' || a.example).length, p.min_stories);
+}, 0);
 for (const d of domains) {
   const as = all.filter((a) => a.domain.includes(d));
   const p = bar(d);
@@ -76,6 +85,11 @@ for (const d of domains) {
   unit(as.filter((a) => a.unless).length, Math.ceil(p.min_confirmed_atoms * p.min_with_unless));
   unit(as.filter((a) => a.type === 'story' || a.example).length, p.min_stories);
 }
+// What the dumps alone added to the checklist (topic points, reasons, exceptions, stories; voice and the like
+// are not attributed), so a dump-first approach can be compared with interviewing.
+const dumps = readDumps(dir);
+const dumpAtoms = all.filter(fromDump).length;
+const dumpItems = topicUnits(all) - topicUnits(all.filter((a) => !fromDump(a)));
 unit(domains.length - unasked.length, domains.length);
 unit(v, B.voice.min_samples);
 unit(bd, B.boundaries.min_items);
@@ -161,7 +175,7 @@ if (process.argv.includes('--json')) {
   console.log(JSON.stringify({
     atoms: { draft: by('draft'), confirmed: by('confirmed'), retired: by('retired') },
     topics: Object.fromEntries(domains.map((d) => [d, all.filter((a) => a.domain.includes(d)).length])),
-    depth, progress: pct, left, eta: etaMin, units: { have, need }, measured, hours: Math.round(spent.ms / 360000) / 10, sessions: spent.sessions, line: progress,
+    depth, dumps: { files: dumps.files, words: dumps.words, atoms: dumpAtoms, items: dumpItems }, progress: pct, left, eta: etaMin, units: { have, need }, measured, hours: Math.round(spent.ms / 360000) / 10, sessions: spent.sessions, line: progress,
   }));
   process.exit(0);
 }
@@ -169,6 +183,7 @@ console.log(`Expert: ${dir}  confirmed atoms: ${atoms.length}`);
 for (const [d, n, m, dp] of rows) console.log(`  ${m.length ? 'GAP' : 'ok '} ${d.padEnd(14)} ${dp.padEnd(7)} ${String(n).padStart(3)} atoms${m.length ? '  ' + m.join(', ') : ''}`);
 console.log(`  voice ${v}  boundaries ${bd}  decision calls ${dc}  calibration questions ${qs}`);
 console.log(progress);
+if (dumps.files) console.log(`Dumps: ${dumps.files} (${dumps.words} words): ${dumpAtoms} points, ${dumpItems} checklist items filled from dumps alone.`);
 const structural = gaps.filter((g) => !/blind|rating|contradiction/.test(g));
 const level = gaps.length === 0 ? 'high' : structural.length <= 3 ? 'medium' : 'low';
 console.log(`Readiness: ${level}${gaps.length ? '  (' + gaps.length + ' gaps)' : ''}`);
