@@ -66,7 +66,8 @@ if (open > B.calibration.max_unresolved_contradictions) gaps.push(`unresolved co
 // reasons, of exceptions and of stories, so an answer can only shorten the list (the readiness bar above is the
 // stricter, ratio-based one). Drafts count, since they only wait for the expert's review.
 let have = 0, need = 0;
-const unit = (got, target) => { need += target; have += Math.min(got, target); };
+const rem = {};
+const unit = (got, target, what = 'topic') => { need += target; have += Math.min(got, target); rem[what] = (rem[what] || 0) + target - Math.min(got, target); };
 const all = readAtoms(dir).map((x) => x.atom).filter((a) => a.status === 'confirmed' || a.status === 'draft');
 // Checklist items the topics' atoms fill, for a given set of atoms (the whole set, or the set without dumps).
 const topicUnits = (list) => domains.reduce((n, d) => {
@@ -90,11 +91,11 @@ for (const d of domains) {
 const dumps = readDumps(dir);
 const dumpAtoms = all.filter(fromDump).length;
 const dumpItems = topicUnits(all) - topicUnits(all.filter((a) => !fromDump(a)));
-unit(domains.length - unasked.length, domains.length);
-unit(v, B.voice.min_samples);
-unit(bd, B.boundaries.min_items);
-unit(dc, B.decision_calls.min_items);
-unit(qs, B.calibration.min_questions);
+unit(domains.length - unasked.length, domains.length, 'topic');
+unit(v, B.voice.min_samples, 'voice');
+unit(bd, B.boundaries.min_items, 'boundaries');
+unit(dc, B.decision_calls.min_items, 'decisions');
+unit(qs, B.calibration.min_questions, 'questions');
 // Progress for the expert: accurate first, steady second.
 // - Time left comes from the expert's measured rate: checklist items gained per hour of logged interviewing,
 //   counted from a baseline taken when the log starts (rebuilt from git when the log was backfilled), so
@@ -141,6 +142,9 @@ if (!RAW) {
   const next = { baseline: mark.baseline, history: history.slice(-200), shown: { left, need, have, eta_minutes: etaMin } };
   if (JSON.stringify(next) !== JSON.stringify(mark)) { try { fs.writeFileSync(markFile, JSON.stringify(next, null, 2) + '\n'); } catch {} }
 }
+// What is left, in plain terms, so the end is visible: topic points are knowledge; the rest are quick to do in bulk.
+const WORDS = { topic: ['topic point', 'topic points'], voice: ['voice sample', 'voice samples'], boundaries: ['boundary', 'boundaries'], decisions: ['decision call', 'decision calls'], questions: ['test question to score', 'test questions to score'] };
+const leftLine = Object.entries(rem).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${WORDS[k][n === 1 ? 0 : 1]}`).join(', ');
 const hrs = (m) => `${Math.round(m / 6) / 10} hours`;
 const duration = (m) => m < 60 ? `${Math.ceil(m / 5) * 5} minutes` : `${Math.ceil(m / 30) / 2} hours`;
 const so_far = spent.ms ? `, ${hrs(spent.ms / 60000)} in over ${spent.sessions} session${spent.sessions === 1 ? '' : 's'}` : '';
@@ -175,7 +179,7 @@ if (process.argv.includes('--json')) {
   console.log(JSON.stringify({
     atoms: { draft: by('draft'), confirmed: by('confirmed'), retired: by('retired') },
     topics: Object.fromEntries(domains.map((d) => [d, all.filter((a) => a.domain.includes(d)).length])),
-    depth, dumps: { files: dumps.files, words: dumps.words, atoms: dumpAtoms, items: dumpItems }, progress: pct, left, eta: etaMin, units: { have, need }, measured, hours: Math.round(spent.ms / 360000) / 10, sessions: spent.sessions, line: progress,
+    depth, remaining: rem, dumps: { files: dumps.files, words: dumps.words, atoms: dumpAtoms, items: dumpItems }, progress: pct, left, eta: etaMin, units: { have, need }, measured, hours: Math.round(spent.ms / 360000) / 10, sessions: spent.sessions, line: progress,
   }));
   process.exit(0);
 }
@@ -183,6 +187,7 @@ console.log(`Expert: ${dir}  confirmed atoms: ${atoms.length}`);
 for (const [d, n, m, dp] of rows) console.log(`  ${m.length ? 'GAP' : 'ok '} ${d.padEnd(14)} ${dp.padEnd(7)} ${String(n).padStart(3)} atoms${m.length ? '  ' + m.join(', ') : ''}`);
 console.log(`  voice ${v}  boundaries ${bd}  decision calls ${dc}  calibration questions ${qs}`);
 console.log(progress);
+if (leftLine) console.log(`Left: ${leftLine}.`);
 if (dumps.files) console.log(`Dumps: ${dumps.files} (${dumps.words} words): ${dumpAtoms} points, ${dumpItems} checklist items filled from dumps alone.`);
 const structural = gaps.filter((g) => !/blind|rating|contradiction/.test(g));
 const level = gaps.length === 0 ? 'high' : structural.length <= 3 ? 'medium' : 'low';
