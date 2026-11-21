@@ -23,6 +23,19 @@ for (const f of files) {
   if (a.status && !p.status.enum.includes(a.status)) errors.push(`${f}: bad status "${a.status}"`);
   if (a.statement && a.statement.length > p.statement.maxLength) errors.push(`${f}: statement over ${p.statement.maxLength} characters`);
   if ('firm' in a && typeof a.firm !== 'boolean') errors.push(`${f}: firm must be true or false`);
+  for (const k of ['corrects', 'when', 'place']) {
+    if (k in a && typeof a[k] !== 'string') errors.push(`${f}: ${k} must be text`);
+    else if (a[k] && a[k].length > p[k].maxLength) errors.push(`${f}: ${k} over ${p[k].maxLength} characters`);
+  }
+  if ('evidence' in a) {
+    const e = a.evidence, ep = p.evidence.properties;
+    if (!e || typeof e !== 'object' || Array.isArray(e)) errors.push(`${f}: evidence must be an object`);
+    else {
+      for (const k of Object.keys(e)) if (!(k in ep)) errors.push(`${f}: unknown evidence field "${k}"`);
+      if (e.edge && !ep.edge.enum.includes(e.edge)) errors.push(`${f}: evidence.edge must be one of ${ep.edge.enum.join(', ')}`);
+      for (const k of ['won', 'lost']) if (k in e && !Array.isArray(e[k])) errors.push(`${f}: evidence.${k} must be a list`);
+    }
+  }
   if (a.domain && (!Array.isArray(a.domain) || a.domain.length === 0)) errors.push(`${f}: domain needs at least one entry`);
   if (a.id) { if (ids.has(a.id)) errors.push(`${f}: duplicate id ${a.id} (also ${ids.get(a.id)})`); ids.set(a.id, f); }
   if (a.id && path.basename(f) !== `${a.id}.json`) errors.push(`${f}: file name should be ${a.id}.json`);

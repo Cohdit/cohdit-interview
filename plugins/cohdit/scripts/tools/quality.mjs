@@ -15,6 +15,9 @@ const raise = (d, o) => { const r = { ...d }; for (const k of Object.keys(o || {
 const B = raise(def, own);
 
 const atoms = readAtoms(dir).map((x) => x.atom).filter((a) => a.status === 'confirmed');
+// A point the edge audit found plain Claude already gives adds nothing the agent needs from this expert, so it
+// does not count toward a topic. It stays in the repo and the agent; it just does not fill the checklist.
+const counts = (a) => !(a.evidence && a.evidence.edge === 'generic');
 const lines = (f) => fs.existsSync(path.join(dir, f)) ? fs.readFileSync(path.join(dir, f), 'utf8').split('\n').filter((l) => /^\s*[-*]\s+\S/.test(l)).length : 0;
 const golden = fs.existsSync(path.join(dir, 'calibration.json')) ? JSON.parse(fs.readFileSync(path.join(dir, 'calibration.json'), 'utf8')) : { questions: [], ratings: [] };
 
@@ -39,7 +42,7 @@ const rows = [];
 const unasked = domains.filter((d) => !depth[d] && !settled.has(d));
 if (unasked.length) gaps.push(`depth not asked: ${unasked.join(', ')}`);
 for (const d of domains) {
-  const as = atoms.filter((a) => a.domain.includes(d));
+  const as = atoms.filter((a) => a.domain.includes(d) && counts(a));
   const why = as.filter((a) => a.why).length;
   const unl = as.filter((a) => a.unless).length;
   const st = as.filter((a) => a.type === 'story' || a.example).length;
@@ -93,9 +96,13 @@ let have = 0, need = 0;
 const rem = {};
 const unit = (got, target, what = 'topic') => { need += target; have += Math.min(got, target); rem[what] = (rem[what] || 0) + target - Math.min(got, target); };
 const all = readAtoms(dir).map((x) => x.atom).filter((a) => a.status === 'confirmed' || a.status === 'draft');
+const edgeOf = (k) => all.filter((a) => a.evidence && a.evidence.edge === k).length;
+const edge = { edge: edgeOf('edge'), partial: edgeOf('partial'), generic: edgeOf('generic') };
+edge.audited = edge.edge + edge.partial + edge.generic;
+edge.unchecked = all.length - edge.audited;
 // Checklist items the topics' atoms fill, for a given set of atoms (the whole set, or the set without dumps).
 const topicUnits = (list) => domains.reduce((n, d) => {
-  const as = list.filter((a) => a.domain.includes(d));
+  const as = list.filter((a) => a.domain.includes(d) && counts(a));
   const p = bar(d);
   return n + Math.min(as.length, p.min_confirmed_atoms)
     + Math.min(as.filter((a) => a.why).length, Math.ceil(p.min_confirmed_atoms * p.min_with_why))
@@ -103,7 +110,7 @@ const topicUnits = (list) => domains.reduce((n, d) => {
     + Math.min(as.filter((a) => a.type === 'story' || a.example).length, p.min_stories);
 }, 0);
 for (const d of domains) {
-  const as = all.filter((a) => a.domain.includes(d));
+  const as = all.filter((a) => a.domain.includes(d) && counts(a));
   const p = bar(d);
   unit(as.length, p.min_confirmed_atoms);
   unit(as.filter((a) => a.why).length, Math.ceil(p.min_confirmed_atoms * p.min_with_why));
@@ -209,7 +216,7 @@ if (process.argv.includes('--json')) {
   console.log(JSON.stringify({
     atoms: { draft: by('draft'), confirmed: by('confirmed'), retired: by('retired') },
     topics: Object.fromEntries(domains.map((d) => [d, all.filter((a) => a.domain.includes(d)).length])),
-    depth, settled: [...settled], remaining: rem, head_to_head: duel, niche, dumps: { files: dumps.files, words: dumps.words, atoms: dumpAtoms, items: dumpItems }, progress: pct, left, eta: etaMin, units: { have, need, pace: paceHave }, measured, hours: Math.round(spent.ms / 360000) / 10, sessions: spent.sessions, line: progress,
+    depth, settled: [...settled], edge, remaining: rem, head_to_head: duel, niche, dumps: { files: dumps.files, words: dumps.words, atoms: dumpAtoms, items: dumpItems }, progress: pct, left, eta: etaMin, units: { have, need, pace: paceHave }, measured, hours: Math.round(spent.ms / 360000) / 10, sessions: spent.sessions, line: progress,
   }));
   process.exit(0);
 }
@@ -219,6 +226,7 @@ console.log(`  voice ${v}  boundaries ${bd}  decision calls ${dc}  calibration q
 console.log(progress);
 if (leftLine) console.log(`Left: ${leftLine}.`);
 if (dumps.files) console.log(`Dumps: ${dumps.files} (${dumps.words} words): ${dumpAtoms} points, ${dumpItems} checklist items filled from dumps alone.`);
+if (edge.audited) console.log(`Edge: of ${edge.audited} points checked against plain Claude, ${edge.edge} beat it, ${edge.partial} partly, ${edge.generic} it already gives${edge.unchecked ? `; ${edge.unchecked} not checked yet` : ''}.`);
 if (duel.picks || duel.sparred) {
   const parts = [];
   if (duel.sparred) parts.push(`sparring ${duel.sparred} scenarios, plain Claude already right in ${duel.plain_right}`);

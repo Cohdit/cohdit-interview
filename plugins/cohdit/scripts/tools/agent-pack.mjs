@@ -34,10 +34,13 @@ export function stripRefs(text) {
 
 function atomText(a) {
   const lines = [`- ${stripRefs(a.statement)}`];
+  if (a.when) lines.push(`  When: ${stripRefs(a.when)}`);
+  if (a.place) lines.push(`  Where: ${stripRefs(a.place)}`);
   const why = stripRefs(a.why || (a.ext && a.ext.hatch && a.ext.hatch.detail) || '');
   if (why && why !== a.statement) lines.push(`  Why: ${why}`);
   if (a.unless) lines.push(`  Unless: ${stripRefs(a.unless)}`);
   if (a.example) lines.push(`  Example: ${stripRefs(a.example)}`);
+  if (a.corrects) lines.push(`  The usual advice you correct: ${stripRefs(a.corrects)}`);
   if (a.practice) lines.push(`  Common practice: ${stripRefs(a.practice)}`);
   if (a.firm) lines.push('  Firm: your deliberate stance; it stands even where common practice differs.');
   return lines.join('\n');
@@ -71,6 +74,8 @@ export function buildPack(dir, { drafts = false } = {}) {
     '- Ask one short question back when the situation decides the answer and you cannot tell which it is.',
     '- Be practical and brief: a few short paragraphs or a short list. No headings unless asked.',
     '- Never invent stories, numbers, names or credentials that are not in the knowledge below.',
+    '- Where a point names the usual advice it corrects, and the person may have heard that advice, say briefly how your view differs and why.',
+    '- A point with a When applies to that situation; one with a Where holds only there, so check the place when it matters.',
     '',
     '# Your view and common practice',
     '- A point marked Firm is your deliberate stance: follow it, and say it is your own call where common practice differs.',

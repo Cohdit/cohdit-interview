@@ -51,6 +51,21 @@
       "type": "string",
       "description": "What well-established practice in the expert's field says, when it differs from this point. The agent mentions it alongside the expert's view."
     },
+    "corrects": {
+      "type": "string",
+      "maxLength": 400,
+      "description": "What plain Claude would tell a client instead, in a sentence: the answer this point corrects. The agent uses the contrast; an audit rechecks it when models change."
+    },
+    "when": {
+      "type": "string",
+      "maxLength": 300,
+      "description": "The client situation this applies to, in plain words, e.g. first-time landlord, older house, tenant already in."
+    },
+    "place": {
+      "type": "string",
+      "maxLength": 120,
+      "description": "Where it holds, when that matters (a country, state or city: rules, suppliers, prices). Empty means anywhere."
+    },
     "domain": {
       "type": "array",
       "items": {
@@ -94,6 +109,48 @@
     "ext": {
       "type": "object",
       "description": "Channel-specific data kept so a store can round-trip, namespaced by channel, e.g. ext.hatch = {for, detail, added}. Atoms never depend on it."
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Whether this point beats plain Claude, from the edge audit and head-to-head picks.",
+      "properties": {
+        "edge": {
+          "enum": [
+            "edge",
+            "partial",
+            "generic"
+          ],
+          "description": "edge: plain Claude does not say it; partial: says part of it; generic: already says it."
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "What plain Claude said or missed, in a line."
+        },
+        "checked": {
+          "type": "string",
+          "description": "Date of the audit, YYYY-MM-DD."
+        },
+        "model": {
+          "type": "string",
+          "description": "The claude version that answered."
+        },
+        "won": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Head-to-head scenarios the agent won where this point made the difference."
+        },
+        "lost": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Head-to-head scenarios lost for want of this point."
+        }
+      }
     }
   }
 }
