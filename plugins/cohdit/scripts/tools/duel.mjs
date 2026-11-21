@@ -10,6 +10,7 @@
 //   duel.mjs <repo> pick <id> <A|B|same> [note]   record a head-to-head verdict
 //   duel.mjs <repo> mark <id> <ok|fix> [note]     record a sparring reaction (ok: plain Claude was right)
 //   duel.mjs <repo> score                   JSON: picks, win rate, sparring agreement by topic
+//   duel.mjs <repo> reveal                  after a round: which answer was the agent's, one line a question
 // CLAUDE_BIN overrides the claude command (tests).
 import fs from 'node:fs';
 import os from 'node:os';
@@ -20,7 +21,7 @@ import { buildPack } from './agent-pack.mjs';
 
 export const FILE = 'scenarios.json';
 export const PLAIN_SYSTEM = 'You are a knowledgeable, practical assistant. Answer the person\'s question as a capable professional in their field would.';
-export const ASK_SHORT = '\n\n(Reply in under 90 words of plain text, no markdown, as you would in a chat app.)';
+export const ASK_SHORT = '\n\n(Reply in under 70 words of plain text, no markdown, as you would in a chat app.)';
 // Kept out of the agent's answer in a head-to-head only, so nothing but the advice tells the two apart.
 export const BLIND_NOTE = '\n\n# For this answer\nDo not mention your notes, your knowledge, what is or is not your own experience, or where your view comes from. Just answer.';
 export const WINDOW = 15;
@@ -75,7 +76,9 @@ export async function run(dir, { rand = Math.random } = {}) {
     }
   }
   const res = await pool(tasks, 4);
-  for (const s of todo) if (s.kind === 'duel' && s.plain && s.expert && !s.a) s.a = rand() < 0.5 ? 'expert' : 'plain';
+  // Duels answered together form one round, so the expert sees "2 of 5".
+  const round = new Date().toISOString();
+  for (const s of todo) if (s.kind === 'duel' && s.plain && s.expert && !s.a) { s.a = rand() < 0.5 ? 'expert' : 'plain'; s.round = round; }
   save(dir, data);
   const failed = res.filter((r) => r.e);
   return { answered: res.length - failed.length, failed: failed.length, error: failed[0]?.e.message };
@@ -87,12 +90,49 @@ function find(data, id) {
   return s;
 }
 
+/** An answer with its opening in bold (its first sentence, or two when the first is a bare "Sure."), so the
+ * gist reads at a glance. */
+export function lead(text) {
+  const t = text.replace(/\*\*/g, '').trim();
+  const ends = [...t.matchAll(/[.!?](?=\s|$)/g)].map((m) => m.index + 1);
+  const cut = ends.find((i) => i >= 30) ?? ends.at(-1);
+  if (!cut || cut > 240) return t;
+  return `**${t.slice(0, cut)}**${t.slice(cut)}`;
+}
+
+export const FIRST_TIME = 'Two answers to the same client. One is your agent, one is plain Claude; you are not told which. Pick the one you would rather your client got. Go with your gut.';
+export const ASK_PICK = '**A, B or same?** (a few words on why are welcome, never needed)';
+
 export function show(dir, id) {
-  const s = find(load(dir), id);
+  const data = load(dir);
+  const s = find(data, id);
   if (s.kind === 'spar') return `${s.id} (${s.domain})\n${s.q}\n\nPlain answer:\n${s.plain || '(not answered yet: run first)'}`;
   if (!s.a) return `${s.id}: not answered yet: run first`;
   const [A, B] = s.a === 'expert' ? [s.expert, s.plain] : [s.plain, s.expert];
-  return `${s.id} (${s.domain})\n${s.q}\n\nA:\n${A}\n\nB:\n${B}`;
+  const duels = data.scenarios.filter((x) => x.kind === 'duel');
+  const round = duels.filter((x) => x.round && x.round === s.round);
+  const n = round.length ? round.filter((x) => x.verdict && x.id !== s.id).length + 1 : 1;
+  const first = !duels.some((x) => x.verdict);
+  return [
+    first && n === 1 ? FIRST_TIME + '\n' : '',
+    `${round.length > 1 ? `${n} of ${round.length} · ` : ''}${s.brief || s.q}`,
+    '',
+    `A: ${lead(A)}`,
+    '',
+    `B: ${lead(B)}`,
+    '',
+    ASK_PICK,
+  ].filter((l, i) => i > 0 || l).join('\n');
+}
+
+/** After a round: which answer was the agent's, one line a question, so the expert sees how it did. */
+export function reveal(dir) {
+  const duels = load(dir).scenarios.filter((x) => x.kind === 'duel' && x.verdict && x.round);
+  if (!duels.length) return 'Nothing picked yet.';
+  const last = duels.map((x) => x.round).sort().at(-1);
+  const round = duels.filter((x) => x.round === last).sort((a, b) => a.id.localeCompare(b.id));
+  const said = { expert: 'your agent won', plain: 'plain Claude won', same: 'a tie' };
+  return round.map((x, i) => `${i + 1}. ${x.brief || x.q.slice(0, 80)}: yours was ${x.a === 'expert' ? 'A' : 'B'}, ${said[x.verdict]}.`).join('\n');
 }
 
 export function pick(dir, id, choice, note) {
@@ -141,12 +181,13 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(file
   const [dir, cmd, id, arg, ...rest] = process.argv.slice(2);
   const note = rest.join(' ');
   try {
-    if (!dir || !cmd) throw new Error('usage: duel.mjs <repo> run|show|pick|mark|score');
+    if (!dir || !cmd) throw new Error('usage: duel.mjs <repo> run|show|pick|mark|score|reveal');
     if (cmd === 'run') console.log(JSON.stringify(await run(dir)));
     else if (cmd === 'show') console.log(show(dir, id));
     else if (cmd === 'pick') console.log(JSON.stringify({ id, verdict: pick(dir, id, arg, note) }));
     else if (cmd === 'mark') console.log(JSON.stringify({ id, plain_right: mark(dir, id, arg, note) }));
     else if (cmd === 'score') console.log(JSON.stringify(score(dir)));
+    else if (cmd === 'reveal') console.log(reveal(dir));
     else throw new Error(`unknown command ${cmd}`);
   } catch (e) { console.error(e.message); process.exit(1); }
 }
