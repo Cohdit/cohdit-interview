@@ -6,7 +6,7 @@
 //   generic  it already says it
 // Writes evidence {edge, note, checked, model} into each atom, and `corrects` (what plain Claude said instead)
 // where the atom has none. With --report <file>, writes nothing in the repo: the results go to that file.
-// Usage: edge-audit.mjs <repo> [--all] [--ids A-001,A-002] [--report <file>]
+// Usage: edge-audit.mjs <repo> [--all] [--ids A-001,A-002] [--report <file>] [--model <id>]
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -110,11 +110,13 @@ export function writeEvidence(results, { model, today = new Date().toISOString()
 
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   const args = process.argv.slice(2);
+  { const mi = args.indexOf('--model'); if (mi >= 0) { process.env.DUEL_MODEL = args[mi + 1]; args.splice(mi, 2); } }
   const dir = args[0];
   const opt = (k) => { const i = args.indexOf(k); return i > 0 ? args[i + 1] : null; };
   if (!dir) { console.error('usage: edge-audit.mjs <repo> [--all] [--ids A-001,A-002] [--report <file>]'); process.exit(2); }
   let model = 'claude';
   try { model = execFileSync(process.env.CLAUDE_BIN || 'claude', ['--version'], { encoding: 'utf8' }).trim().split('\n')[0]; } catch {}
+  model = process.env.DUEL_MODEL ? `${process.env.DUEL_MODEL} (${model})` : model;
   const results = await audit(dir, { all: args.includes('--all'), ids: opt('--ids') ? opt('--ids').split(',') : null, log: (m) => process.stderr.write(`\r${m}   `) });
   process.stderr.write('\n');
   const summary = summarise(results);
