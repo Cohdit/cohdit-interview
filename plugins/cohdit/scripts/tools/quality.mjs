@@ -6,7 +6,7 @@ import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readAtoms, readLog, timeSpent, readDumps, fromDump } from './lib.mjs';
-import { score as duelScore, load } from './duel.mjs';
+import { score as duelScore, load, readiness } from './duel.mjs';
 
 const dir = process.argv[2];
 const def = JSON.parse(fs.readFileSync(new URL('../schema/benchmarks.default.json', import.meta.url), 'utf8'));
@@ -80,8 +80,12 @@ if (B.calibration.required) {
 // The readiness bar: does the agent beat plain Claude on what a real client would ask, as the expert judges blind.
 const H = B.head_to_head;
 const duel = duelScore(dir, H.min_picks);
-if (duel.window < H.min_picks) gaps.push(`head-to-head picks ${duel.window}/${H.min_picks}`);
-else if (duel.win_rate < H.min_win_rate) gaps.push(`head-to-head win rate ${Math.round(100 * duel.win_rate)}%/${Math.round(100 * H.min_win_rate)}%`);
+// Clearly winning early is enough (6 of the first 6, or 8 of 10); otherwise 60% of the latest 15.
+const ready = readiness(dir).ready;
+// Checks done, for the checklist: all of them once the agent is ready, however early.
+const picksDone = ready ? H.min_picks : Math.min(duel.window, H.min_picks);
+if (!ready && duel.window < H.min_picks) gaps.push(`head-to-head picks ${duel.window}/${H.min_picks}`);
+else if (!ready) gaps.push(`head-to-head win rate ${Math.round(100 * duel.win_rate)}%/${Math.round(100 * H.min_win_rate)}%`);
 // Positioning: who the agent is for, and why this expert rather than another in the same trade.
 const niche = expert.niche || {};
 const nicheMissing = B.niche.required.filter((k) => !String(niche[k] || '').trim());
@@ -129,10 +133,10 @@ unit(dc, B.decision_calls.min_items, 'decisions');
 unit(B.niche.required.length - nicheMissing.length, B.niche.required.length, 'niche');
 if (B.calibration.required) unit(qs, B.calibration.min_questions, 'questions');
 // Head-to-head picks take a few seconds each, so they are timed apart from the interview pace below.
-const picksLeft = Math.max(0, H.min_picks - duel.window);
-unit(duel.window, H.min_picks, 'picks');
+const picksLeft = H.min_picks - picksDone;
+unit(picksDone, H.min_picks, 'picks');
 // The pace below counts interview items only, so quick picks never make the interview look faster than it is.
-const paceHave = have - Math.min(duel.window, H.min_picks);
+const paceHave = have - picksDone;
 // Progress for the expert: accurate first, steady second.
 // - Time left comes from the expert's measured rate: checklist items gained per hour of logged interviewing,
 //   counted from a baseline taken when the log starts (rebuilt from git when the log was backfilled), so
@@ -230,7 +234,7 @@ if (edge.audited) console.log(`Edge: of ${edge.audited} points checked against a
 if (duel.picks || duel.sparred) {
   const parts = [];
   if (duel.sparred) parts.push(`${duel.sparred} questions sparred, the free AI already right in ${duel.plain_right}`);
-  if (duel.window) parts.push(`your agent won ${Math.round(100 * duel.win_rate)}% of the last ${duel.window} checks against the free AI`);
+  if (duel.window) parts.push(`your agent won ${Math.round(100 * duel.win_rate)}% of the last ${duel.window} checks against the free AI${ready ? ': ready to earn' : ''}`);
   console.log(`Checks: ${parts.join('; ')}.`);
 }
 const structural = gaps.filter((g) => !/rating|contradiction|head-to-head/.test(g));

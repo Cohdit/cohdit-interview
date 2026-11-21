@@ -5,7 +5,7 @@
 //   knowing which is which. The agent's win rate over the latest picks is the readiness bar.
 // Scenarios live in scenarios.json in the expert repo; the interviewer writes the questions, this answers them.
 // Usage:
-//   duel.mjs <repo> run                     answer every scenario that has no answers yet
+//   duel.mjs <repo> run [--model <id>]      answer every scenario that has no answers yet, both sides with that model
 //   duel.mjs <repo> show <id>               the scenario as the expert sees it (sparring: plain answer; head-to-head: A and B)
 //   duel.mjs <repo> pick <id> <A|B|same> [note]   record a head-to-head verdict
 //   duel.mjs <repo> mark <id> <ok|fix> [note]     record a sparring reaction (ok: plain Claude was right)
@@ -33,11 +33,13 @@ export function load(dir) {
 function save(dir, data) { fs.writeFileSync(path.join(dir, FILE), JSON.stringify(data, null, 2) + '\n'); }
 
 /** Ask claude once, with no tools, settings, plugins or memory from this machine's projects: a clean answer. */
-export function ask(system, question, { timeoutMs = 180000, short = true } = {}) {
+// The model both sides answer with: the one the expert is using in this session (the interviewer passes it with
+// --model), so the only difference between the two answers is the expert's knowledge. Unset, claude's default.
+export function ask(system, question, { timeoutMs = 180000, short = true, model = process.env.DUEL_MODEL } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'duel-'));
   const bin = process.env.CLAUDE_BIN || 'claude';
   const args = ['-p', '--tools', '', '--setting-sources', '', '--strict-mcp-config', '--no-session-persistence',
-    '--system-prompt', system, '--', short ? question + ASK_SHORT : question];
+    ...(model ? ['--model', model] : []), '--system-prompt', system, '--', short ? question + ASK_SHORT : question];
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { cwd: tmp, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '', err = '';
@@ -73,7 +75,7 @@ export async function run(dir, { rand = Math.random } = {}) {
   for (const s of todo) {
     if (!s.plain) tasks.push(() => ask(PLAIN_SYSTEM, s.q).then((a) => { s.plain = a; }));
     if (s.kind === 'duel' && !s.expert) {
-      tasks.push(() => ask(pack.system + BLIND_NOTE, s.q).then((a) => { s.expert = a; s.pack = pack.sha; s.atoms = pack.atoms; }));
+      tasks.push(() => ask(pack.system + BLIND_NOTE, s.q).then((a) => { s.expert = a; s.pack = pack.sha; s.atoms = pack.atoms; s.model = process.env.DUEL_MODEL || 'default'; }));
     }
   }
   const res = await pool(tasks, 4);
@@ -110,11 +112,12 @@ export const FIRST_SPAR = [
 export const FIRST_TIME = [
   'A quick check on your agent. Every few questions I will show you one of these.',
   'Two answers to the same client question: one from your agent, built from what you have told me, and one from a free AI. You are not told which is which.',
+  'Both use the same AI model you are using right now, so the only difference is what you have taught your agent.',
   'Pick the one you would rather your client got. Afterwards I tell you which was yours. When your agent wins most of these, it is ready to earn.',
 ].join('\n');
 export const ASK_SPAR = '**What is wrong or missing? "Fine" if nothing.**';
 export const ASK_PICK = '**A, B or same?** (a few words on why are welcome, never needed)';
-const BENCH = (() => { try { return JSON.parse(fs.readFileSync(new URL('../schema/benchmarks.default.json', import.meta.url), 'utf8')).head_to_head; } catch { return { min_picks: 15, min_win_rate: 0.6 }; } })();
+const BENCH = (() => { try { return JSON.parse(fs.readFileSync(new URL('../schema/benchmarks.default.json', import.meta.url), 'utf8')).head_to_head; } catch { return { min_picks: 15, min_win_rate: 0.6, early: [{ picks: 6, wins: 6 }, { picks: 10, wins: 8 }] }; } })();
 
 export function show(dir, id) {
   const data = load(dir);
@@ -140,20 +143,29 @@ export function show(dir, id) {
   ].filter((l, i) => i > 0 || l).join('\n');
 }
 
-/** The plain-words result of a pick: which answer was the agent's, and where the agent stands. */
+/**
+ * Is the agent ready? Clearly winning early is enough: 6 wins in the first 6 checks, or 8 in 10; otherwise
+ * 60% of the latest 15. A tie counts half. Returns { ready, wins, n }.
+ */
+export function readiness(dir) {
+  const rules = [...(BENCH.early || []), { picks: BENCH.min_picks, wins: BENCH.min_picks * BENCH.min_win_rate }];
+  const all = score(dir, BENCH.min_picks);
+  for (const r of rules) {
+    const sc = score(dir, r.picks);
+    if (sc.window >= r.picks && sc.wins + sc.ties / 2 >= r.wins) return { ready: true, wins: sc.wins, n: sc.window };
+  }
+  return { ready: false, wins: all.wins, ties: all.ties, n: all.window };
+}
+
+/** The plain-words result of a pick: which answer was the agent's, and where it stands. Calm, never a quota. */
 export function told(dir, id) {
-  const data = load(dir);
-  const s = find(data, id);
+  const s = find(load(dir), id);
   const yours = s.a === 'expert' ? 'A' : 'B';
   const what = { expert: `${yours} was your agent: it won.`, plain: `${yours} was your agent: the free answer won this one.`, same: `${yours} was your agent: a tie.` }[s.verdict];
-  const sc = score(dir, BENCH.min_picks);
-  const pct = Math.round(100 * BENCH.min_win_rate);
-  const stand = sc.window < BENCH.min_picks
-    ? `So far it has won ${sc.wins} of ${sc.window}${sc.ties ? ` (and tied ${sc.ties})` : ''}. It needs ${BENCH.min_picks} checks, winning ${pct}% of them, to be ready.`
-    : sc.win_rate >= BENCH.min_win_rate
-      ? `It has won ${Math.round(100 * sc.win_rate)}% of the last ${sc.window}: ready to earn.`
-      : `It has won ${Math.round(100 * sc.win_rate)}% of the last ${sc.window}; it needs ${pct}% to be ready.`;
-  return `${what} ${stand}`;
+  const r = readiness(dir);
+  const tally = `${r.wins} ${r.wins === 1 ? 'win' : 'wins'} out of ${r.n}`;
+  if (r.ready) return `${what} That makes ${tally}: your agent is ready to earn.`;
+  return `${what} ${tally} so far. A few more of these will come up as we go.`;
 }
 
 /** After a round: which answer was the agent's, one line a question, so the expert sees how it did. */
@@ -180,7 +192,7 @@ export function next(dir) {
   if (duel && since >= EVERY) return { do: 'check', id: duel.id };
   const spar = all.find((x) => x.kind === 'spar' && x.plain && typeof x.agree !== 'boolean');
   if (spar) return { do: 'spar', id: spar.id };
-  if (duel) return { do: 'check', id: duel.id };
+  // A check that is waiting still comes only after 3 sparring answers, never back to back.
   const unanswered = all.some((x) => !x.plain || (x.kind === 'duel' && !x.a));
   if (unanswered) return { do: 'run' };
   return { do: 'write', spar: EVERY, check: all.some((x) => x.kind === 'duel' && !x.verdict) ? 0 : 1 };
@@ -229,7 +241,10 @@ export function score(dir, window = WINDOW) {
 }
 
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
-  const [dir, cmd, id, arg, ...rest] = process.argv.slice(2);
+  const argv = process.argv.slice(2);
+  const mi = argv.indexOf('--model');
+  if (mi >= 0) { process.env.DUEL_MODEL = argv[mi + 1]; argv.splice(mi, 2); }
+  const [dir, cmd, id, arg, ...rest] = argv;
   const note = rest.join(' ');
   try {
     if (!dir || !cmd) throw new Error('usage: duel.mjs <repo> run|next|show|pick|mark|score|reveal');

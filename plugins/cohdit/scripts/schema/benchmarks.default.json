@@ -33,9 +33,19 @@
     "max_unresolved_contradictions": 0
   },
   "head_to_head": {
-    "_about": "The readiness bar. The expert's agent and plain Claude answer the same client scenarios; the expert picks the better answer blind. Win rate over the latest picks, a tie counting half.",
+    "_about": "The readiness bar. The expert's agent and plain Claude answer the same client scenarios with the same model; the expert picks the better answer blind. Ready when it wins clearly early (each early rule: that many latest picks, that many wins), or at the win rate over the latest min_picks. A tie counts half.",
     "min_picks": 15,
-    "min_win_rate": 0.6
+    "min_win_rate": 0.6,
+    "early": [
+      {
+        "picks": 6,
+        "wins": 6
+      },
+      {
+        "picks": 10,
+        "wins": 8
+      }
+    ]
   },
   "niche": {
     "_about": "Who the agent serves, where, with what problem, and what this expert does that others in the trade do not (expert.json niche).",
