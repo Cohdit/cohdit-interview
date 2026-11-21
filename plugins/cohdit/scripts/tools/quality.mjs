@@ -5,7 +5,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { readAtoms, readLog, timeSpent } from './lib.mjs';
+import { readAtoms, readLog, timeSpent, readDumps, fromDump } from './lib.mjs';
+import { score as duelScore, load } from './duel.mjs';
 
 const dir = process.argv[2];
 const def = JSON.parse(fs.readFileSync(new URL('../schema/benchmarks.default.json', import.meta.url), 'utf8'));
@@ -22,10 +23,20 @@ const domains = own.core_domains && own.core_domains.length ? own.core_domains :
 // How deep the expert is in each topic (expert.json). A light topic has a lower bar; an unasked one is a gap.
 const expert = fs.existsSync(path.join(dir, 'expert.json')) ? JSON.parse(fs.readFileSync(path.join(dir, 'expert.json'), 'utf8')) : {};
 const depth = expert.depth || {};
-const bar = (d) => (depth[d] === 'light' ? B.light_domain : B.per_domain);
+// A topic where plain Claude was already right in the last few sparring scenarios needs nothing from the
+// expert: common practice covers it, so it is settled and leaves the checklist. One correction reopens it.
+const SETTLE = B.sparring.settled_after;
+const sparred = load(dir).scenarios.filter((s) => s.kind === 'spar' && typeof s.agree === 'boolean')
+  .sort((a, b) => String(a.at).localeCompare(String(b.at)));
+const settled = new Set(domains.filter((d) => {
+  const last = sparred.filter((s) => s.domain === d).slice(-SETTLE);
+  return last.length === SETTLE && last.every((s) => s.agree);
+}));
+const NONE = { min_confirmed_atoms: 0, min_with_why: 0, min_with_unless: 0, min_stories: 0 };
+const bar = (d) => (settled.has(d) ? NONE : depth[d] === 'light' ? B.light_domain : B.per_domain);
 const gaps = [];
 const rows = [];
-const unasked = domains.filter((d) => !depth[d]);
+const unasked = domains.filter((d) => !depth[d] && !settled.has(d));
 if (unasked.length) gaps.push(`depth not asked: ${unasked.join(', ')}`);
 for (const d of domains) {
   const as = atoms.filter((a) => a.domain.includes(d));
@@ -40,7 +51,7 @@ for (const d of domains) {
   if (why < needWhy) miss.push(`why ${why}/${needWhy}`);
   if (unl < needUnl) miss.push(`unless ${unl}/${needUnl}`);
   if (st < p.min_stories) miss.push(`stories ${st}/${p.min_stories}`);
-  rows.push([d, as.length, miss, depth[d] || '?']);
+  rows.push([d, as.length, miss, settled.has(d) ? 'common' : depth[d] || '?']);
   if (miss.length) gaps.push(`domain ${d}: ${miss.join(', ')}`);
 }
 const v = lines('voice.md'), bd = lines('boundaries.md'), dc = lines('decisions.md');
@@ -48,17 +59,30 @@ if (v < B.voice.min_samples) gaps.push(`voice samples ${v}/${B.voice.min_samples
 if (bd < B.boundaries.min_items) gaps.push(`boundaries ${bd}/${B.boundaries.min_items}`);
 if (dc < B.decision_calls.min_items) gaps.push(`decision calls ${dc}/${B.decision_calls.min_items}`);
 const qs = golden.questions.length;
-if (qs < B.calibration.min_questions) gaps.push(`calibration questions ${qs}/${B.calibration.min_questions}`);
-const qd = new Set(golden.questions.map((q) => q.domain));
-const unc = domains.filter((d) => !qd.has(d));
-if (B.calibration.min_domains_covered === 'all' && unc.length) gaps.push(`calibration misses domains: ${unc.join(', ')}`);
 const r = golden.ratings.map((x) => x.score);
 const mean = r.length ? r.reduce((a, b) => a + b, 0) / r.length : 0;
-if (!r.length) gaps.push('no blind rating yet (the expert has not scored the agent against their own answers)');
-else {
-  if (mean < B.calibration.blind_rating_mean) gaps.push(`blind rating mean ${mean.toFixed(2)}/${B.calibration.blind_rating_mean}`);
-  if (Math.min(...r) < B.calibration.blind_rating_floor) gaps.push(`a blind rating below ${B.calibration.blind_rating_floor}`);
+// Scoring answers the expert can see flatters the agent, so it is only a requirement where an expert's own
+// benchmarks ask for it. The bar is the blind head-to-head below.
+if (B.calibration.required) {
+  if (qs < B.calibration.min_questions) gaps.push(`calibration questions ${qs}/${B.calibration.min_questions}`);
+  const qd = new Set(golden.questions.map((q) => q.domain));
+  const unc = domains.filter((d) => !qd.has(d));
+  if (B.calibration.min_domains_covered === 'all' && unc.length) gaps.push(`calibration misses domains: ${unc.join(', ')}`);
+  if (!r.length) gaps.push('no calibration rating yet');
+  else {
+    if (mean < B.calibration.blind_rating_mean) gaps.push(`calibration rating mean ${mean.toFixed(2)}/${B.calibration.blind_rating_mean}`);
+    if (Math.min(...r) < B.calibration.blind_rating_floor) gaps.push(`a calibration rating below ${B.calibration.blind_rating_floor}`);
+  }
 }
+// The readiness bar: does the agent beat plain Claude on what a real client would ask, as the expert judges blind.
+const H = B.head_to_head;
+const duel = duelScore(dir, H.min_picks);
+if (duel.window < H.min_picks) gaps.push(`head-to-head picks ${duel.window}/${H.min_picks}`);
+else if (duel.win_rate < H.min_win_rate) gaps.push(`head-to-head win rate ${Math.round(100 * duel.win_rate)}%/${Math.round(100 * H.min_win_rate)}%`);
+// Positioning: who the agent is for, and why this expert rather than another in the same trade.
+const niche = expert.niche || {};
+const nicheMissing = B.niche.required.filter((k) => !String(niche[k] || '').trim());
+if (nicheMissing.length) gaps.push(`niche not set: ${nicheMissing.join(', ')}`);
 const open = (golden.contradictions || []).filter((c) => !c.resolved).length;
 if (open > B.calibration.max_unresolved_contradictions) gaps.push(`unresolved contradictions ${open}`);
 
@@ -66,8 +90,18 @@ if (open > B.calibration.max_unresolved_contradictions) gaps.push(`unresolved co
 // reasons, of exceptions and of stories, so an answer can only shorten the list (the readiness bar above is the
 // stricter, ratio-based one). Drafts count, since they only wait for the expert's review.
 let have = 0, need = 0;
-const unit = (got, target) => { need += target; have += Math.min(got, target); };
+const rem = {};
+const unit = (got, target, what = 'topic') => { need += target; have += Math.min(got, target); rem[what] = (rem[what] || 0) + target - Math.min(got, target); };
 const all = readAtoms(dir).map((x) => x.atom).filter((a) => a.status === 'confirmed' || a.status === 'draft');
+// Checklist items the topics' atoms fill, for a given set of atoms (the whole set, or the set without dumps).
+const topicUnits = (list) => domains.reduce((n, d) => {
+  const as = list.filter((a) => a.domain.includes(d));
+  const p = bar(d);
+  return n + Math.min(as.length, p.min_confirmed_atoms)
+    + Math.min(as.filter((a) => a.why).length, Math.ceil(p.min_confirmed_atoms * p.min_with_why))
+    + Math.min(as.filter((a) => a.unless).length, Math.ceil(p.min_confirmed_atoms * p.min_with_unless))
+    + Math.min(as.filter((a) => a.type === 'story' || a.example).length, p.min_stories);
+}, 0);
 for (const d of domains) {
   const as = all.filter((a) => a.domain.includes(d));
   const p = bar(d);
@@ -76,11 +110,22 @@ for (const d of domains) {
   unit(as.filter((a) => a.unless).length, Math.ceil(p.min_confirmed_atoms * p.min_with_unless));
   unit(as.filter((a) => a.type === 'story' || a.example).length, p.min_stories);
 }
-unit(domains.length - unasked.length, domains.length);
-unit(v, B.voice.min_samples);
-unit(bd, B.boundaries.min_items);
-unit(dc, B.decision_calls.min_items);
-unit(qs, B.calibration.min_questions);
+// What the dumps alone added to the checklist (topic points, reasons, exceptions, stories; voice and the like
+// are not attributed), so a dump-first approach can be compared with interviewing.
+const dumps = readDumps(dir);
+const dumpAtoms = all.filter(fromDump).length;
+const dumpItems = topicUnits(all) - topicUnits(all.filter((a) => !fromDump(a)));
+unit(domains.length - unasked.length, domains.length, 'topic');
+unit(v, B.voice.min_samples, 'voice');
+unit(bd, B.boundaries.min_items, 'boundaries');
+unit(dc, B.decision_calls.min_items, 'decisions');
+unit(B.niche.required.length - nicheMissing.length, B.niche.required.length, 'niche');
+if (B.calibration.required) unit(qs, B.calibration.min_questions, 'questions');
+// Head-to-head picks take a few seconds each, so they are timed apart from the interview pace below.
+const picksLeft = Math.max(0, H.min_picks - duel.window);
+unit(duel.window, H.min_picks, 'picks');
+// The pace below counts interview items only, so quick picks never make the interview look faster than it is.
+const paceHave = have - Math.min(duel.window, H.min_picks);
 // Progress for the expert: accurate first, steady second.
 // - Time left comes from the expert's measured rate: checklist items gained per hour of logged interviewing,
 //   counted from a baseline taken when the log starts (rebuilt from git when the log was backfilled), so
@@ -97,9 +142,9 @@ if (!mark.baseline && !RAW) mark.baseline = baselineFor(spent);
 // Points along the way (one per 10 minutes of logged time), so the pace can be read over the most recent
 // 4 hours of interviewing: it follows the interview as it is now, not how it went at the start.
 const history = (mark.history || []).filter((h) => h.ms <= spent.ms);
-if (!RAW && spent.ms && (!history.length || spent.ms - history.at(-1).ms >= 10 * 60000)) history.push({ ms: spent.ms, answers: spent.answers, have });
-const start = mark.baseline || { ms: spent.ms, answers: spent.answers, have };
-const rate = (from) => ({ items: have - from.have, ms: spent.ms - from.ms, answers: spent.answers - from.answers });
+if (!RAW && spent.ms && (!history.length || spent.ms - history.at(-1).ms >= 10 * 60000)) history.push({ ms: spent.ms, answers: spent.answers, have: paceHave });
+const start = mark.baseline || { ms: spent.ms, answers: spent.answers, have: paceHave };
+const rate = (from) => ({ items: paceHave - from.have, ms: spent.ms - from.ms, answers: spent.answers - from.answers });
 const enough = (x) => x.items >= 10 && x.ms >= 45 * 60000;
 const recentFrom = [start, ...history].filter((h) => h.ms >= spent.ms - 4 * 3600000).sort((a, b) => a.ms - b.ms)[0];
 const pick = [recentFrom && rate(recentFrom), rate(start)].find((x) => x && enough(x));
@@ -109,10 +154,10 @@ const clamp = (x, lo, hi) => Math.min(Math.max(x, lo), hi);
 // answers for each checklist item.
 const minutesPerItem = measured ? clamp(pick.ms / 60000 / pick.items, 1, 60) : 15;
 const answersPerItem = measured ? clamp(pick.answers / pick.items, 0.5, 6) : 3;
-const itemsLeft = need - have;
+const itemsLeft = (need - have) - picksLeft;
 const round5 = (n) => (n > 30 ? Math.round(n / 5) * 5 : n);
 const left = itemsLeft ? round5(Math.ceil(itemsLeft * answersPerItem)) : 0;
-const scoring = r.length ? 0 : 30;
+const scoring = picksLeft ? Math.max(5, Math.ceil(picksLeft * 0.5 / 5) * 5) : 0;
 const etaMin = Math.round(itemsLeft * minutesPerItem) + scoring;
 const pct = need ? Math.floor((100 * have) / need) : 100;
 let why = '';
@@ -127,14 +172,17 @@ if (!RAW) {
   const next = { baseline: mark.baseline, history: history.slice(-200), shown: { left, need, have, eta_minutes: etaMin } };
   if (JSON.stringify(next) !== JSON.stringify(mark)) { try { fs.writeFileSync(markFile, JSON.stringify(next, null, 2) + '\n'); } catch {} }
 }
+// What is left, in plain terms, so the end is visible: topic points are knowledge; the rest are quick to do in bulk.
+const WORDS = { topic: ['topic point', 'topic points'], voice: ['voice sample', 'voice samples'], boundaries: ['boundary', 'boundaries'], decisions: ['decision call', 'decision calls'], questions: ['test question to score', 'test questions to score'], picks: ['head-to-head pick', 'head-to-head picks'], niche: ['niche answer', 'niche answers'] };
+const leftLine = Object.entries(rem).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${WORDS[k][n === 1 ? 0 : 1]}`).join(', ');
 const hrs = (m) => `${Math.round(m / 6) / 10} hours`;
 const duration = (m) => m < 60 ? `${Math.ceil(m / 5) * 5} minutes` : `${Math.ceil(m / 30) / 2} hours`;
 const so_far = spent.ms ? `, ${hrs(spent.ms / 60000)} in over ${spent.sessions} session${spent.sessions === 1 ? '' : 's'}` : '';
 const guess = measured ? '' : ' (a first guess until your pace is measured)';
-const after = scoring ? ', plus about 30 minutes at the end scoring the agent' : '';
+const after = scoring ? `, plus about ${scoring} minutes picking between the agent and plain Claude` : '';
 const progress = itemsLeft
   ? `Progress: ${pct}% of the way${so_far}. About ${left} more answers, roughly ${duration(etaMin - scoring)}${guess}${after}.${why}`
-  : `Progress: all answers in${so_far}${scoring ? '; last, about 30 minutes scoring the agent' : ''}.`;
+  : `Progress: all answers in${so_far}${scoring ? `; last, about ${scoring} minutes picking between the agent and plain Claude` : ''}.`;
 
 /** Checklist items done when the log began: from git when the log starts in the past (a backfill), else now. */
 function baselineFor(spent) {
@@ -149,11 +197,11 @@ function baselineFor(spent) {
         execFileSync('sh', ['-c', `git -C "${dir}" archive ${rev} | tar -x -C "${tmp}"`], { stdio: 'ignore' });
         const then = JSON.parse(execFileSync(process.execPath, [fileURLToPath(import.meta.url), tmp, '--json', '--raw'], { encoding: 'utf8' }));
         fs.rmSync(tmp, { recursive: true, force: true });
-        return { from: 'git', t: first, ms: 0, answers: 0, have: then.units.have };
+        return { from: 'git', t: first, ms: 0, answers: 0, have: then.units.pace ?? then.units.have };
       }
     } catch {}
   }
-  return { from: 'now', t: Date.now(), ms: spent.ms, answers: spent.answers, have };
+  return { from: 'now', t: Date.now(), ms: spent.ms, answers: spent.answers, have: paceHave };
 }
 if (process.argv.includes('--json')) {
   const every = readAtoms(dir).map((x) => x.atom);
@@ -161,7 +209,7 @@ if (process.argv.includes('--json')) {
   console.log(JSON.stringify({
     atoms: { draft: by('draft'), confirmed: by('confirmed'), retired: by('retired') },
     topics: Object.fromEntries(domains.map((d) => [d, all.filter((a) => a.domain.includes(d)).length])),
-    depth, progress: pct, left, eta: etaMin, units: { have, need }, measured, hours: Math.round(spent.ms / 360000) / 10, sessions: spent.sessions, line: progress,
+    depth, settled: [...settled], remaining: rem, head_to_head: duel, niche, dumps: { files: dumps.files, words: dumps.words, atoms: dumpAtoms, items: dumpItems }, progress: pct, left, eta: etaMin, units: { have, need, pace: paceHave }, measured, hours: Math.round(spent.ms / 360000) / 10, sessions: spent.sessions, line: progress,
   }));
   process.exit(0);
 }
@@ -169,7 +217,15 @@ console.log(`Expert: ${dir}  confirmed atoms: ${atoms.length}`);
 for (const [d, n, m, dp] of rows) console.log(`  ${m.length ? 'GAP' : 'ok '} ${d.padEnd(14)} ${dp.padEnd(7)} ${String(n).padStart(3)} atoms${m.length ? '  ' + m.join(', ') : ''}`);
 console.log(`  voice ${v}  boundaries ${bd}  decision calls ${dc}  calibration questions ${qs}`);
 console.log(progress);
-const structural = gaps.filter((g) => !/blind|rating|contradiction/.test(g));
+if (leftLine) console.log(`Left: ${leftLine}.`);
+if (dumps.files) console.log(`Dumps: ${dumps.files} (${dumps.words} words): ${dumpAtoms} points, ${dumpItems} checklist items filled from dumps alone.`);
+if (duel.picks || duel.sparred) {
+  const parts = [];
+  if (duel.sparred) parts.push(`sparring ${duel.sparred} scenarios, plain Claude already right in ${duel.plain_right}`);
+  if (duel.window) parts.push(`the agent won ${Math.round(100 * duel.win_rate)}% of the last ${duel.window} picks against plain Claude`);
+  console.log(`Head-to-head: ${parts.join('; ')}.`);
+}
+const structural = gaps.filter((g) => !/rating|contradiction|head-to-head/.test(g));
 const level = gaps.length === 0 ? 'high' : structural.length <= 3 ? 'medium' : 'low';
 console.log(`Readiness: ${level}${gaps.length ? '  (' + gaps.length + ' gaps)' : ''}`);
 process.exit(gaps.length === 0 ? 0 : 1);

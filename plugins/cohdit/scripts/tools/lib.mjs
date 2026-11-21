@@ -42,3 +42,14 @@ export function timeSpent(events) {
   }
   return { ms, sessions: bySession.size, answers: events.filter((e) => e.e === 'answer').length };
 }
+
+// Brain dumps the expert sent, raw, one file each: dumps/<YYYY-MM-DD-HHMM>.md. Atoms taken from one carry
+// source "dump:<file name>", so the check can say how much of the checklist the dumps filled.
+export function readDumps(dir) {
+  const root = path.join(dir, 'dumps');
+  if (!fs.existsSync(root)) return { files: 0, words: 0 };
+  const files = fs.readdirSync(root).filter((f) => f.endsWith('.md'));
+  const words = files.reduce((n, f) => n + (fs.readFileSync(path.join(root, f), 'utf8').match(/\S+/g) || []).length, 0);
+  return { files: files.length, words };
+}
+export const fromDump = (a) => typeof a.source === 'string' && a.source.startsWith('dump:');

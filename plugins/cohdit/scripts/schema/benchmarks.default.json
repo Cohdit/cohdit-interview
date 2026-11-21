@@ -13,14 +13,39 @@
     "min_with_unless": 0,
     "min_stories": 0
   },
-  "voice": { "min_samples": 8 },
-  "boundaries": { "min_items": 3 },
-  "decision_calls": { "min_items": 5 },
+  "voice": {
+    "min_samples": 8
+  },
+  "boundaries": {
+    "min_items": 3
+  },
+  "decision_calls": {
+    "min_items": 5
+  },
   "calibration": {
+    "_about": "Optional since head-to-head testing: the expert scoring answers they can see flatters the agent. Applies only when required is true.",
+    "required": false,
     "min_questions": 25,
     "min_domains_covered": "all",
     "blind_rating_mean": 4.2,
     "blind_rating_floor": 3,
     "max_unresolved_contradictions": 0
+  },
+  "head_to_head": {
+    "_about": "The readiness bar. The expert's agent and plain Claude answer the same client scenarios; the expert picks the better answer blind. Win rate over the latest picks, a tie counting half.",
+    "min_picks": 15,
+    "min_win_rate": 0.6
+  },
+  "niche": {
+    "_about": "Who the agent serves, where, with what problem, and what this expert does that others in the trade do not (expert.json niche).",
+    "required": [
+      "who",
+      "problem",
+      "different"
+    ]
+  },
+  "sparring": {
+    "_about": "A topic where plain Claude was already right in this many sparring scenarios in a row needs nothing more from the expert: common practice covers it.",
+    "settled_after": 3
   }
 }
