@@ -180,16 +180,16 @@ if (!RAW) {
   if (JSON.stringify(next) !== JSON.stringify(mark)) { try { fs.writeFileSync(markFile, JSON.stringify(next, null, 2) + '\n'); } catch {} }
 }
 // What is left, in plain terms, so the end is visible: topic points are knowledge; the rest are quick to do in bulk.
-const WORDS = { topic: ['topic point', 'topic points'], voice: ['voice sample', 'voice samples'], boundaries: ['boundary', 'boundaries'], decisions: ['decision call', 'decision calls'], questions: ['test question to score', 'test questions to score'], picks: ['head-to-head pick', 'head-to-head picks'], niche: ['niche answer', 'niche answers'] };
+const WORDS = { topic: ['topic point', 'topic points'], voice: ['voice sample', 'voice samples'], boundaries: ['boundary', 'boundaries'], decisions: ['decision call', 'decision calls'], questions: ['test question to score', 'test questions to score'], picks: ['check on your agent', 'checks on your agent'], niche: ['niche answer', 'niche answers'] };
 const leftLine = Object.entries(rem).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${WORDS[k][n === 1 ? 0 : 1]}`).join(', ');
 const hrs = (m) => `${Math.round(m / 6) / 10} hours`;
 const duration = (m) => m < 60 ? `${Math.ceil(m / 5) * 5} minutes` : `${Math.ceil(m / 30) / 2} hours`;
 const so_far = spent.ms ? `, ${hrs(spent.ms / 60000)} in over ${spent.sessions} session${spent.sessions === 1 ? '' : 's'}` : '';
 const guess = measured ? '' : ' (a first guess until your pace is measured)';
-const after = scoring ? `, plus about ${scoring} minutes picking between the agent and plain Claude` : '';
+const after = scoring ? `, plus about ${scoring} minutes of quick checks on your agent` : '';
 const progress = itemsLeft
   ? `Progress: ${pct}% of the way${so_far}. About ${left} more answers, roughly ${duration(etaMin - scoring)}${guess}${after}.${why}`
-  : `Progress: all answers in${so_far}${scoring ? `; last, about ${scoring} minutes picking between the agent and plain Claude` : ''}.`;
+  : `Progress: all answers in${so_far}${scoring ? `; last, about ${scoring} minutes of quick checks on your agent` : ''}.`;
 
 /** Checklist items done when the log began: from git when the log starts in the past (a backfill), else now. */
 function baselineFor(spent) {
@@ -226,12 +226,12 @@ console.log(`  voice ${v}  boundaries ${bd}  decision calls ${dc}  calibration q
 console.log(progress);
 if (leftLine) console.log(`Left: ${leftLine}.`);
 if (dumps.files) console.log(`Dumps: ${dumps.files} (${dumps.words} words): ${dumpAtoms} points, ${dumpItems} checklist items filled from dumps alone.`);
-if (edge.audited) console.log(`Edge: of ${edge.audited} points checked against plain Claude, ${edge.edge} beat it, ${edge.partial} partly, ${edge.generic} it already gives${edge.unchecked ? `; ${edge.unchecked} not checked yet` : ''}.`);
+if (edge.audited) console.log(`Edge: of ${edge.audited} points checked against a free AI, ${edge.edge} beat it, ${edge.partial} partly, ${edge.generic} it already gives${edge.unchecked ? `; ${edge.unchecked} not checked yet` : ''}.`);
 if (duel.picks || duel.sparred) {
   const parts = [];
-  if (duel.sparred) parts.push(`sparring ${duel.sparred} scenarios, plain Claude already right in ${duel.plain_right}`);
-  if (duel.window) parts.push(`the agent won ${Math.round(100 * duel.win_rate)}% of the last ${duel.window} picks against plain Claude`);
-  console.log(`Head-to-head: ${parts.join('; ')}.`);
+  if (duel.sparred) parts.push(`${duel.sparred} questions sparred, the free AI already right in ${duel.plain_right}`);
+  if (duel.window) parts.push(`your agent won ${Math.round(100 * duel.win_rate)}% of the last ${duel.window} checks against the free AI`);
+  console.log(`Checks: ${parts.join('; ')}.`);
 }
 const structural = gaps.filter((g) => !/rating|contradiction|head-to-head/.test(g));
 const level = gaps.length === 0 ? 'high' : structural.length <= 3 ? 'medium' : 'low';
