@@ -1,6 +1,6 @@
 ---
 name: calibrate
-description: Score the agent built from the expert's knowledge: the agent drafts the test questions and answers, the expert only scores them. Triggers on "calibrate", "test the agent", "score the agent", "rate the answers".
+description: Optional extra check: the agent drafts test questions and answers, the expert scores them 1 to 5. Triggers on "calibrate", "score the answers", "rate the answers".
 ---
 
 Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/interview.mjs" content skill calibrate`.
