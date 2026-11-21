@@ -31,11 +31,11 @@ export function load(dir) {
 function save(dir, data) { fs.writeFileSync(path.join(dir, FILE), JSON.stringify(data, null, 2) + '\n'); }
 
 /** Ask claude once, with no tools, settings, plugins or memory from this machine's projects: a clean answer. */
-export function ask(system, question, { timeoutMs = 180000 } = {}) {
+export function ask(system, question, { timeoutMs = 180000, short = true } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'duel-'));
   const bin = process.env.CLAUDE_BIN || 'claude';
   const args = ['-p', '--tools', '', '--setting-sources', '', '--strict-mcp-config', '--no-session-persistence',
-    '--system-prompt', system, question + ASK_SHORT];
+    '--system-prompt', system, '--', short ? question + ASK_SHORT : question];
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { cwd: tmp, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '', err = '';
@@ -52,7 +52,7 @@ export function ask(system, question, { timeoutMs = 180000 } = {}) {
   });
 }
 
-async function pool(tasks, n) {
+export async function pool(tasks, n) {
   const results = [];
   let i = 0;
   await Promise.all(Array.from({ length: Math.min(n, tasks.length) }, async () => {

@@ -1,9 +1,10 @@
 {
   "_about": "The quality bar an expert's knowledge must clear before an agent is built from it. Defaults apply to every expert; an expert's own benchmarks.json may raise them, never lower them. The bar is part of the product, so it is not renegotiated per agent.",
   "per_domain": {
-    "min_confirmed_atoms": 5,
-    "min_with_why": 0.8,
-    "min_with_unless": 0.4,
+    "_about": "A floor, not the bar: the head-to-head win rate decides readiness. Points the edge audit finds plain Claude already gives do not count.",
+    "min_confirmed_atoms": 4,
+    "min_with_why": 0.6,
+    "min_with_unless": 0.25,
     "min_stories": 1
   },
   "light_domain": {
