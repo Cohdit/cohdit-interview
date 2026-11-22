@@ -11,7 +11,6 @@
 //   duel.mjs <repo> mark <id> <ok|fix> [note]     record a sparring reaction (ok: plain Claude was right)
 //   duel.mjs <repo> score                   JSON: picks, win rate, sparring agreement by topic
 //   duel.mjs <repo> next                    what to do next: spar <id>, check <id>, run, or write more
-//   duel.mjs <repo> reveal                  after a round: which answer was the agent's, one line a question
 // CLAUDE_BIN overrides the claude command (tests).
 import fs from 'node:fs';
 import os from 'node:os';
@@ -108,6 +107,7 @@ export const FIRST_SPAR = [
   'Here is how this works. I show you a question a client of yours might ask, and the answer a free AI gives today.',
   'Tell me what is wrong or missing, the way you would correct a junior. If it is fine, just say "fine".',
   'Your corrections are what make your agent better than the free answer; what the free AI already knows costs you nothing.',
+  'Answer whenever you have a minute. Each question stands on its own, so there is nothing to remember from last time, and everything is saved as you go.',
 ].join('\n');
 export const FIRST_TIME = [
   'A quick check on your agent. Every few questions I will show you one of these.',
@@ -166,16 +166,6 @@ export function told(dir, id) {
   const tally = `${r.wins} ${r.wins === 1 ? 'win' : 'wins'} out of ${r.n}`;
   if (r.ready) return `${what} That makes ${tally}: your agent is ready to earn.`;
   return `${what} ${tally} so far. A few more of these will come up as we go.`;
-}
-
-/** After a round: which answer was the agent's, one line a question, so the expert sees how it did. */
-export function reveal(dir) {
-  const duels = load(dir).scenarios.filter((x) => x.kind === 'duel' && x.verdict && x.round);
-  if (!duels.length) return 'Nothing picked yet.';
-  const last = duels.map((x) => x.round).sort().at(-1);
-  const round = duels.filter((x) => x.round === last).sort((a, b) => a.id.localeCompare(b.id));
-  const said = { expert: 'your agent won', plain: 'the free answer won', same: 'a tie' };
-  return round.map((x, i) => `${i + 1}. ${x.brief || x.q.slice(0, 80)}: yours was ${x.a === 'expert' ? 'A' : 'B'}, ${said[x.verdict]}.`).join('\n');
 }
 
 /**
@@ -247,14 +237,13 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(file
   const [dir, cmd, id, arg, ...rest] = argv;
   const note = rest.join(' ');
   try {
-    if (!dir || !cmd) throw new Error('usage: duel.mjs <repo> run|next|show|pick|mark|score|reveal');
+    if (!dir || !cmd) throw new Error('usage: duel.mjs <repo> run|next|show|pick|mark|score');
     if (cmd === 'run') console.log(JSON.stringify(await run(dir)));
     else if (cmd === 'show') console.log(show(dir, id));
     else if (cmd === 'pick') { const verdict = pick(dir, id, arg, note); console.log(JSON.stringify({ id, verdict, say: told(dir, id) })); }
     else if (cmd === 'next') console.log(JSON.stringify(next(dir)));
     else if (cmd === 'mark') console.log(JSON.stringify({ id, plain_right: mark(dir, id, arg, note) }));
     else if (cmd === 'score') console.log(JSON.stringify(score(dir)));
-    else if (cmd === 'reveal') console.log(reveal(dir));
     else throw new Error(`unknown command ${cmd}`);
   } catch (e) { console.error(e.message); process.exit(1); }
 }
