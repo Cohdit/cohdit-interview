@@ -133,7 +133,7 @@ export function show(dir, id) {
   const picked = data.scenarios.filter((x) => x.kind === 'duel' && x.verdict).length;
   return [
     picked === 0 ? FIRST_TIME + '\n' : '',
-    `Check ${picked + 1} · ${s.brief || s.q}`,
+    `Check ${picked + 1} · A client asks: ${s.q}`,
     '',
     `A: ${lead(A)}`,
     '',
