@@ -45,7 +45,8 @@ Private. ${name}'s knowledge as atoms (\`atoms/<domain>/A-NNN.json\`), plus \`pr
   'voice.md': `# Voice\n\nHow ${name} speaks, so the agent can match it.\n\n(filled in by interview)\n`,
   'calibration.json': JSON.stringify({ questions: [], ratings: [], contradictions: [] }, null, 2) + '\n',
   'benchmarks.json': fs.readFileSync(new URL('../schema/benchmarks.default.json', import.meta.url), 'utf8'),
-  '.gitignore': 'build/\n',
+  '.gitignore': 'build/\ninbox/\n',
+  'inbox/README.md': 'Drop your own files here (notes, proposals, slides, checklists), then tell the interviewer "done". They stay on this computer: this folder is never pushed.\n',
   'atoms/.gitkeep': '',
   'sources/.gitkeep': '',
 };

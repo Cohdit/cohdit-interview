@@ -133,7 +133,7 @@ export function show(dir, id) {
   const picked = data.scenarios.filter((x) => x.kind === 'duel' && x.verdict).length;
   return [
     picked === 0 ? FIRST_TIME + '\n' : '',
-    `Check ${picked + 1} · A client asks: ${s.q}`,
+    `A client asks: ${s.q}`,
     '',
     `A: ${lead(A)}`,
     '',
@@ -173,7 +173,7 @@ export function told(dir, id) {
  * a waiting sparring scenario first; after every EVERY sparring reactions, a check if one is ready;
  * when nothing is waiting, write more: 3 sparring scenarios, plus 1 check unless one is already waiting.
  */
-export const EVERY = 3;
+export const EVERY = 5;
 export function next(dir) {
   const all = load(dir).scenarios;
   const lastPick = all.filter((x) => x.kind === 'duel' && x.verdict).map((x) => String(x.at)).sort().at(-1) || '';
