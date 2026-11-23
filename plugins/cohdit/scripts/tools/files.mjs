@@ -6,6 +6,7 @@
 // is skipped. Prints one JSON line a file: {file, dump, words}, {file, read: true} for a PDF or image the
 // interviewer reads itself, or {file, skipped: reason}. Never prints the text.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -37,7 +38,16 @@ export function extract(file) {
     try { return { text: execFileSync('textutil', ['-convert', 'txt', '-stdout', file], { encoding: 'utf8', maxBuffer: 64 << 20 }) }; } catch { return { skipped: 'save it as Word or PDF first' }; }
   }
   if (SELF.has(ext)) return { read: true };
-  if (MEDIA.has(ext)) return { skipped: 'a recording: send the transcript instead' };
+  if (MEDIA.has(ext)) {
+    // A local whisper, where installed, turns a recording into text; otherwise the call app's transcript is needed.
+    try {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'whisper-'));
+      execFileSync(process.env.WHISPER_BIN || 'whisper', [file, '--output_format', 'txt', '--output_dir', tmp], { stdio: 'ignore', timeout: 3600000 });
+      const txt = fs.readdirSync(tmp).find((n) => n.endsWith('.txt'));
+      if (txt) return { text: fs.readFileSync(path.join(tmp, txt), 'utf8') };
+    } catch {}
+    return { skipped: 'a recording: send the transcript instead (Zoom, Teams, Google Meet, Otter or Voice Memos make one)' };
+  }
   return { skipped: 'not a document' };
 }
 
